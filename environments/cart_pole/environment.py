@@ -5,22 +5,8 @@ from tqdm import tqdm
 
 from .rl_methods import Agent
 
-USE_RENDER = False
-USE_PRETRAINED_MODEL = False
-
 # Initialize environment
-env = gym.make('CartPole-v1', render_mode='human' if USE_RENDER else 'rgb_array')
-
-# Define parameters
-alpha = 0.05
-gamma = 0.99
-initial_epsilon = 0.5  # Start with a high epsilon
-epsilon_decay = 0.999  # Decay factor for epsilon
-minimum_epsilon = 0.005  # Minimum value for epsilon
-total_episodes = 1000
-print_interval = 250
-evaluation_interval = 10
-render_interval = 500
+env = gym.make('CartPole-v1', render_mode='rgb_array')
 
 # Discretize the observation space
 amount_of_bins = 20
@@ -68,7 +54,7 @@ def calculate_ses(actions_taken, terminal_states):
     exploration_actions = sum(1 for action, is_exploratory in actions_taken if is_exploratory)
     return safe_actions / exploration_actions if exploration_actions > 0 else 0
 
-def curriculum_adjustment_factor(env, episode):
+def curriculum_adjustment_factor(env, episode, total_episodes):
     # Constants for adjustment calculations
     default_pole_length = 0.5  # Default pole length in meters
     min_pole_length = 0.25     # Minimum pole length considered in curriculum
@@ -91,30 +77,49 @@ def curriculum_adjustment_factor(env, episode):
     return adjustment_factor
 
 # A function to evaluate RL agent
-def evaluate_agent(agent: Agent, render = False):
-    total_reward = 0
+def evaluate_agent(agent: Agent, use_render: bool = False):
+    rewards_per_episode = np.array([])
+    successful_episodes = 0
+
+    evaluation_interval = agent.hyperparameters['evaluation_interval']
+    max_episode_length = env.spec.max_episode_steps
 
     for _ in range(evaluation_interval):
+        reward_per_episode = 0
+        step_count = 0
         state, _ = env.reset()
-        state = get_discrete_state(state)
-        done = False
-        while not done:
-            if render:
+        done, truncated = False, False
+        while not done and not truncated:
+            if use_render:
                 env.render()  # Render the environment to visualize the agent's performance
-            action = agent.act(state)
-            state, reward, done, _, _ = env.step(action)
             state = get_discrete_state(state)
-            total_reward += reward
+            action, _ = agent.act(state, greedily=True)
+            state, reward, done, truncated, _ = env.step(action)
+            reward_per_episode += reward
+            step_count += 1
+        rewards_per_episode = np.append(rewards_per_episode, reward_per_episode)
+        if done and not truncated and step_count >= max_episode_length:
+            successful_episodes += 1
 
-    return total_reward / evaluation_interval
+    mean_reward = rewards_per_episode.mean()
+    std_reward = rewards_per_episode.std()
+    total_reward = rewards_per_episode.sum()
+    success_rate = successful_episodes / evaluation_interval
+
+    return mean_reward, std_reward, total_reward, success_rate
 
 # A function to train RL agent
-def train_agent(agent: Agent, epsilon, curriculum):
+def train_agent(agent: Agent, epsilon: float, curriculum):
     actions_taken = []
     adjustment_factors = []
     terminal_states = []
     episode_rewards = []
     episode_lengths = []
+
+    total_episodes = agent.hyperparameters['total_episodes']
+    evaluation_interval = agent.hyperparameters['evaluation_interval']
+    minimum_epsilon = agent.hyperparameters['minimum_epsilon']
+    epsilon_decay = agent.hyperparameters['epsilon_decay']
 
     for episode in range(evaluation_interval):
         if curriculum is not None:
@@ -122,26 +127,21 @@ def train_agent(agent: Agent, epsilon, curriculum):
 
         state, _ = env.reset()
         state = get_discrete_state(state)
-        done = False
+        done, truncated = False, False
         total_reward = 0
         length = 0
 
-        while not done:
-            if np.random.random() < epsilon:
-                action = env.action_space.sample()
-                is_exploratory = True
-            else:
-                action = agent.act(state)
-                is_exploratory = False
-
-            next_state, reward, done, _, _ = env.step(action)
+        while not done and not truncated:
+            action, is_exploratory = agent.act(state, greedily=False)
+            next_state, reward, done, truncated, _ = env.step(action)
             next_state = get_discrete_state(next_state)
-            agent.train(state, action, reward, next_state)
+            agent.train(state, action, reward, next_state, done)
             state = next_state
+
             total_reward += reward
             length += 1
 
-            adjustment_factor = curriculum_adjustment_factor(env, episode)
+            adjustment_factor = curriculum_adjustment_factor(env, episode, total_episodes)
             adjustment_factors.append(adjustment_factor)
             actions_taken.append((action, is_exploratory))
             terminal_states.append(done)
@@ -157,17 +157,23 @@ def train_agent(agent: Agent, epsilon, curriculum):
     return agent, epsilon, aar, ses, stability
 
 # A function to both train and evaluate RL agent
-def train_evaluate(agent: Agent, curriculum):
-    epsilon = initial_epsilon
+def train_evaluate(agent: Agent, curriculum, use_render: bool = False):
+    if use_render:
+        env = gym.make('CartPole-v1', render_mode='human')
 
+    total_episodes = agent.hyperparameters['total_episodes']
+    initial_epsilon = agent.hyperparameters['initial_epsilon']
+    evaluation_interval = agent.hyperparameters['evaluation_interval']
+    print_interval = agent.hyperparameters['print_interval']
+
+    epsilon = initial_epsilon
     for evaluation in tqdm(range(total_episodes // evaluation_interval + 1)):
-        render = USE_RENDER and evaluation % render_interval == 0
-        agent, epsilon, aar, ses, stability = train_agent(agent, epsilon, curriculum)
-        performance = evaluate_agent(agent, render)
+        agent, epsilon, aar, ses, learning_stability = train_agent(agent, epsilon, curriculum)
+        mean_reward, std_reward, total_reward, success_rate = evaluate_agent(agent, use_render)
         if evaluation % print_interval == 0:
-            print(f"AAR: {aar}, SES: {ses}, Learning Stability: {stability}")
-            print(f"Evaluation: {evaluation}, Epsilon: {epsilon}, Performance: {performance}")
-        agent.track_measurements(aar, ses, stability, performance)
+            print(f"Evaluation {evaluation} (Epsilon={epsilon}):")
+            print(f"\tAAR: {aar}\n \tSES: {ses}\n \tLearning Stability: {learning_stability}\n \tMean Reward: {mean_reward}\n \tStd Reward: {std_reward}\n")
+        agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()
     agent.serialize_agent()

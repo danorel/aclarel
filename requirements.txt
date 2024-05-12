@@ -1,6 +1,7 @@
 autopep8==2.0.1
 gym-0.26.2
 matplotlib==3.8.4
+pandas==2.2.2
 pre-commit==3.0.4
 pyglet==2.0.15
 pygame==2.5.2

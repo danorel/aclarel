@@ -8,8 +8,10 @@ Use the [DEVELOPER.md](./DEVELOPER.md) guide to run or contribute to the project
 
 ## Usage
 
+### CartPole
+
 ```python
-python -m main.py
+python environments/cart_pole/cl_methods/runner.py -a dqn -c baseline
 ```
 
 ## License

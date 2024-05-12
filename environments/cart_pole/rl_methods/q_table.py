@@ -6,18 +6,52 @@ import environments.cart_pole.rl_methods as cart_pole_rl
 agent_name = pathlib.Path(__file__).resolve().stem
 
 class QLearningAgent(cart_pole_rl.Agent):
-    def __init__(self, curriculum_name):
+    def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
-        if not cart_pole_env.USE_PRETRAINED_MODEL:
-            self.refresh_agent()
-        else:
+        self.hyperparameters = {
+            "total_episodes": 50000,
+            "alpha": 0.1,
+            "gamma": 0.99,
+            "initial_epsilon": 0.1,
+            "minimum_epsilon": 0.005,
+            "epsilon_decay": 0.9999,
+            "print_interval": 250,
+            "evaluation_interval": 10,
+        }
+        self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
+        # Define Q-Learning architecture
+        if use_pretrained:
             self.deserialize_agent()
+        else:
+            self.refresh_agent()
+        # Parameters
+        self.epsilon = self.hyperparameters['initial_epsilon']
 
-    def act(self, state):
-        return np.argmax(self.q_table[state])
+    def act(self, state, greedily: bool = False):
+        is_exploratory = False
+
+        if greedily:
+            action = np.argmax(self.q_table[state])
+        else:
+            epsilon_decay = self.hyperparameters['epsilon_decay']
+            minimum_epsilon = self.hyperparameters['minimum_epsilon']
+
+            if np.random.random() < self.epsilon:
+                is_exploratory = True
+                action = cart_pole_env.env.action_space.sample()
+            else:
+                is_exploratory = False
+                action = np.argmax(self.q_table[state])
+
+            self.epsilon *= epsilon_decay
+            self.epsilon = max(minimum_epsilon, self.epsilon)
+
+        return action, is_exploratory
     
-    def train(self, prev_state, action, reward, next_state):
-        self.q_table[prev_state + (action,)] = self.q_table[prev_state + (action,)] + cart_pole_env.alpha * (reward + cart_pole_env.gamma * np.max(self.q_table[next_state]) - self.q_table[prev_state + (action,)])
+    def train(self, prev_state, action, reward, next_state, done):
+        alpha = self.hyperparameters['alpha']
+        gamma = self.hyperparameters['gamma']
+        self.q_table[prev_state + (action,)] = self.q_table[prev_state + (action,)] + alpha * (reward + gamma * np.max(self.q_table[next_state]) - self.q_table[prev_state + (action,)])
     
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in cart_pole_env.state_bins)
@@ -25,9 +59,9 @@ class QLearningAgent(cart_pole_rl.Agent):
         self.q_table = np.zeros(states + actions, dtype=np.float32)
 
     def deserialize_agent(self):
-        model_path = self.model_dir / f'{self.parameters}.npy'
+        model_path = self.model_dir / f'{self.hyperparameter_path}.npy' 
         self.q_table = np.load(model_path, allow_pickle=False)
 
     def serialize_agent(self):
-        model_path = self.model_dir / f'{self.parameters}.npy'
+        model_path = self.model_dir / f'{self.hyperparameter_path}.npy'
         np.save(model_path, self.q_table)
