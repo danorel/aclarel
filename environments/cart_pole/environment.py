@@ -158,8 +158,7 @@ def train_agent(agent: Agent, epsilon: float, curriculum):
 
 # A function to both train and evaluate RL agent
 def train_evaluate(agent: Agent, curriculum, use_render: bool = False):
-    if use_render:
-        env = gym.make('CartPole-v1', render_mode='human')
+    env = gym.make('CartPole-v1', render_mode='human' if use_render else 'rgb_array')
 
     total_episodes = agent.hyperparameters['total_episodes']
     initial_epsilon = agent.hyperparameters['initial_epsilon']
