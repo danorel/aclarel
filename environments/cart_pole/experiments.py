@@ -12,12 +12,16 @@ def get_agent(agent_name, curriculum_name, pretrained: bool = False):
     }
     return agents.get(agent_name, DQNAgent)(curriculum_name, pretrained)
 
-def get_curriculum(curriculum_name):
+def get_curriculum(curriculum_name, base_length = 0.25):
     """Factory function to fetch the appropriate curriculum."""
     curricula = {
         'baseline': None,
-        'root_p': pre_defined.root_p(base_length=0.25),
-        'linear': self_paced.linear(base_length=0.25),
-        'logarithmic': self_paced.logarithmic(base_length=0.25)
+        'root_p': pre_defined.root_p(base_length),
+        'hard': self_paced.hard(base_length),
+        'linear': self_paced.linear(base_length),
+        'logarithmic': self_paced.logarithmic(base_length),
+        'logistic': self_paced.logistic(base_length),
+        'mixture': self_paced.mixture(base_length),
+        'polynomial': self_paced.polynomial(base_length),
     }
     return curricula.get(curriculum_name, None)
