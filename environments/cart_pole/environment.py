@@ -3,7 +3,8 @@ import numpy as np
 
 from tqdm import tqdm
 
-from .rl_methods import Agent
+import environments.cart_pole.metrics as metrics
+import environments.cart_pole.rl_methods as rl_methods
 
 # Initialize environment
 env = gym.make('CartPole-v1', render_mode='rgb_array')
@@ -41,43 +42,8 @@ def get_discrete_state(state):
         index.append(np.digitize(val, state_bins[i]) - 1)  # Find the bin index for each state dimension
     return tuple(index)
 
-# Metric AAR
-def calculate_aar(rewards, lengths, adjustment_factors):
-    # Adjust rewards by episode length and difficulty adjustment factor
-    adjusted_rewards = [(reward / length) * factor for reward, length, factor in zip(rewards, lengths, adjustment_factors)]
-    # Return the average of these adjusted rewards
-    return np.mean(adjusted_rewards)
-
-# Metric SES
-def calculate_ses(actions_taken, terminal_states):
-    safe_actions = sum(1 for (action, is_exploratory), terminal in zip(actions_taken, terminal_states) if not terminal and is_exploratory)
-    exploration_actions = sum(1 for action, is_exploratory in actions_taken if is_exploratory)
-    return safe_actions / exploration_actions if exploration_actions > 0 else 0
-
-def curriculum_adjustment_factor(env, episode, total_episodes):
-    # Constants for adjustment calculations
-    default_pole_length = 0.5  # Default pole length in meters
-    min_pole_length = 0.25     # Minimum pole length considered in curriculum
-
-    current_pole_length = env.unwrapped.length
-
-    # Calculate a baseline adjustment based on pole length
-    if current_pole_length <= default_pole_length:
-        length_adjustment = default_pole_length / current_pole_length
-    else:
-        length_adjustment = 1
-
-    # Introduce an episode-dependent adjustment that gradually increases difficulty
-    # This could be a linear progression or any other function of the episode number
-    episode_factor = 1 + (episode / total_episodes) * (min_pole_length / current_pole_length - 1)
-
-    # Combine the two adjustments
-    adjustment_factor = length_adjustment * episode_factor
-    
-    return adjustment_factor
-
 # A function to evaluate RL agent
-def evaluate_agent(agent: Agent, use_render: bool = False):
+def evaluate_agent(agent: rl_methods.Agent, use_render: bool = False):
     rewards_per_episode = np.array([])
     successful_episodes = 0
 
@@ -109,7 +75,7 @@ def evaluate_agent(agent: Agent, use_render: bool = False):
     return mean_reward, std_reward, total_reward, success_rate
 
 # A function to train RL agent
-def train_agent(agent: Agent, epsilon: float, curriculum):
+def train_agent(agent: rl_methods.Agent, epsilon: float, curriculum):
     actions_taken = []
     adjustment_factors = []
     terminal_states = []
@@ -123,7 +89,12 @@ def train_agent(agent: Agent, epsilon: float, curriculum):
 
     for episode in range(evaluation_interval):
         if curriculum is not None:
-            curriculum(env, episode, total_episodes)
+            curriculum(
+                env, 
+                episode, 
+                total_episodes, 
+                metrics={ 'aar': metrics.aar(episode_rewards, episode_lengths, adjustment_factors) }
+            )
 
         state, _ = env.reset()
         state = get_discrete_state(state)
@@ -141,7 +112,7 @@ def train_agent(agent: Agent, epsilon: float, curriculum):
             total_reward += reward
             length += 1
 
-            adjustment_factor = curriculum_adjustment_factor(env, episode, total_episodes)
+            adjustment_factor = metrics.adjustment_factor(env, episode, total_episodes)
             adjustment_factors.append(adjustment_factor)
             actions_taken.append((action, is_exploratory))
             terminal_states.append(done)
@@ -151,13 +122,13 @@ def train_agent(agent: Agent, epsilon: float, curriculum):
         epsilon = max(minimum_epsilon, epsilon * epsilon_decay)
 
     stability = np.std(episode_rewards)
-    aar = calculate_aar(episode_rewards, episode_lengths, adjustment_factors)
-    ses = calculate_ses(actions_taken, terminal_states)
+    aar = metrics.aar(episode_rewards, episode_lengths, adjustment_factors)
+    ses = metrics.ses(actions_taken, terminal_states)
 
     return agent, epsilon, aar, ses, stability
 
 # A function to both train and evaluate RL agent
-def train_evaluate(agent: Agent, curriculum, use_render: bool = False):
+def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
     env = gym.make('CartPole-v1', render_mode='human' if use_render else 'rgb_array')
 
     total_episodes = agent.hyperparameters['total_episodes']
