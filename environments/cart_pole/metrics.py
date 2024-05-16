@@ -15,19 +15,18 @@ def ses(actions_taken, terminal_states):
 
 def adjustment_factor(env, episode, total_episodes):
     # Constants for adjustment calculations
-    default_pole_length = 0.5  # Default pole length in meters
-    min_pole_length = 0.25     # Minimum pole length considered in curriculum
+    min_pole_length = 0.25  # Minimum pole length considered in curriculum
+    max_pole_length = 0.5   # Maximum pole length in meters
 
     current_pole_length = env.unwrapped.length
 
     # Calculate a baseline adjustment based on pole length
-    if current_pole_length <= default_pole_length:
-        length_adjustment = default_pole_length / current_pole_length
+    if current_pole_length <= max_pole_length:
+        length_adjustment = max_pole_length / current_pole_length
     else:
         length_adjustment = 1
 
     # Introduce an episode-dependent adjustment that gradually increases difficulty
-    # This could be a linear progression or any other function of the episode number
     episode_factor = 1 + (episode / total_episodes) * (min_pole_length / current_pole_length - 1)
 
     # Combine the two adjustments
