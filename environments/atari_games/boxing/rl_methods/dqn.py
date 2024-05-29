@@ -45,6 +45,7 @@ class DQNAgent(boxing_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 1000,
             "alpha": 0.0005,
@@ -55,7 +56,7 @@ class DQNAgent(boxing_rl.Agent):
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
             "print_interval": 50,
-            "evaluation_interval": 5,
+            "evaluation_interval": 10,
             "update_interval": 500
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"

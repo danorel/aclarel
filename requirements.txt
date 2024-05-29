@@ -1,5 +1,7 @@
 autopep8==2.0.1
 gym==0.26.2
+gymnasium[atari]==0.29.1
+gym[accept-rom-license]==0.26.2
 matplotlib==3.8.4
 pandas==2.2.2
 pre-commit==3.0.4

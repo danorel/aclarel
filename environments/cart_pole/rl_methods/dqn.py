@@ -30,6 +30,7 @@ class DQNAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 2000,
             "alpha": 0.001,
