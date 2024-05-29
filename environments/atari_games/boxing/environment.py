@@ -12,21 +12,7 @@ env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
 
 # Discretize the observation space
 reward_threshold = 100
-state_width, state_height = 80, 80
 action_size = env.action_space.n
-
-def preprocess_observation(observation):
-    # Crop the image: remove the top of the screen
-    observation = observation[34:194]  # Adjust depending on the game
-    # Downsample by factor of 2
-    observation = observation[::2, ::2]
-    # Convert to grayscale
-    observation = np.mean(observation, axis=2).astype(np.uint8)
-    # Normalize pixel values
-    observation = observation / 255.0
-    # Reshape to include channel dimension
-    observation = observation.reshape(1, 80, 80)  # Add channel dimension for CNN input
-    return observation
 
 def update_env_parameters(env, frame_skip=None):
     if frame_skip is not None:
@@ -47,7 +33,6 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
         while not done and not truncated:
             if use_render:
                 env.render()  # Render the environment to visualize the agent's performance
-            state = preprocess_observation(state)
             action, _ = agent.act(state, greedily=True)
             state, reward, done, truncated, _ = env.step(action)
             reward_per_episode += reward
@@ -89,7 +74,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
             )
 
         state, _ = env.reset()
-        state = preprocess_observation(state)
         done, truncated = False, False
         total_reward = 0
         length = 0
@@ -97,7 +81,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
         while not done and not truncated:
             action, is_exploratory = agent.act(state, greedily=False)
             next_state, reward, done, truncated, _ = env.step(action)
-            next_state = preprocess_observation(next_state)
             agent.train(state, action, reward, next_state, done)
             state = next_state
 

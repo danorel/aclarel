@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torchvision.transforms as transforms
 import pathlib
 import random
 import numpy as np
@@ -14,7 +15,7 @@ agent_name = pathlib.Path(__file__).resolve().stem
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
 
 class DQNNetwork(nn.Module):
-    def __init__(self, state_width, state_height, action_size, hidden_size = 64):
+    def __init__(self, action_size, hidden_size = 64):
         super(DQNNetwork, self).__init__()
         self.conv1 = nn.Conv2d(1, 24, kernel_size=8, stride=5)
         self.conv2 = nn.Conv2d(24, 32, kernel_size=4, stride=2)
@@ -24,8 +25,8 @@ class DQNNetwork(nn.Module):
         def conv_output_size(size, kernel_size, stride):
             return (size - kernel_size) // stride + 1
 
-        convw = conv_output_size(conv_output_size(conv_output_size(state_width, 8, 5), 4, 2), 3, 1)
-        convh = conv_output_size(conv_output_size(conv_output_size(state_height, 8, 5), 4, 2), 3, 1)
+        convw = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[0], 8, 5), 4, 2), 3, 1)
+        convh = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[1], 8, 5), 4, 2), 3, 1)
         
         linear_input_size = convw * convh * 32
 
@@ -48,16 +49,16 @@ class DQNAgent(boxing_rl.Agent):
         print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 1000,
-            "alpha": 0.0005,
-            "gamma": 0.98,
-            "replay_buffer_size": 20000,
+            "alpha": 0.00025,
+            "gamma": 0.99,
+            "replay_buffer_size": 1000000,
             "batch_size": 128,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
             "print_interval": 50,
             "evaluation_interval": 10,
-            "update_interval": 500
+            "update_interval": 10000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         # Define DQN network
@@ -73,27 +74,45 @@ class DQNAgent(boxing_rl.Agent):
         # Parameters
         self.epsilon = self.hyperparameters['initial_epsilon']
         self.steps_count = 0
-    
+        # Pre-processing
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Grayscale(num_output_channels=1),
+            transforms.ToTensor(),
+        ])
+        # Pre-allocated tensors
+        batch_size = self.hyperparameters['batch_size']
+        state_shape = (1, boxing_env.env.observation_space.shape[0], boxing_env.env.observation_space.shape[1])
+        action_shape = (batch_size, 1)
+        reward_shape = (batch_size, 1)
+        self.state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
+        self.action_batch = torch.zeros(action_shape, dtype=torch.long, device=self.device)
+        self.reward_batch = torch.zeros(reward_shape, dtype=torch.float32, device=self.device)
+        self.next_state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
+        self.non_final_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+
+    def preprocess(self, state):
+        state = self.transform(state)
+        return state.to(self.device)
+
     def act(self, state, greedily: bool = False):
         is_exploratory = False
 
         if greedily:
             with torch.no_grad():
-                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                state_tensor = self.preprocess(state).unsqueeze(0)  # Ensure preprocessing is applied
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
             epsilon_decay = self.hyperparameters['epsilon_decay']
             minimum_epsilon = self.hyperparameters['minimum_epsilon']
 
-            is_exploratory = False
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = boxing_env.env.action_space.sample()
             else:
-                is_exploratory = False
                 with torch.no_grad():
-                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                    state_tensor = self.preprocess(state).unsqueeze(0)  # Ensure preprocessing is applied
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
 
@@ -111,29 +130,31 @@ class DQNAgent(boxing_rl.Agent):
         batch = Transition(*zip(*transitions))
 
         # Convert to tensors and ensure they are the correct shape
-        state_batch = torch.stack([torch.tensor(s, dtype=torch.float32) for s in batch.state]).to(self.device)
-        action_batch = torch.tensor(batch.action, dtype=torch.long).to(self.device).unsqueeze(-1)
-        reward_batch = torch.tensor(batch.reward, dtype=torch.float32).to(self.device)
-        non_final_mask = torch.tensor([s is not None for s in batch.next_state], dtype=torch.bool, device=self.device)
-        non_final_next_states = torch.stack([torch.tensor(s, dtype=torch.float32) for s in batch.next_state if s is not None]).to(self.device)
+        for i, (state, action, reward, next_state) in enumerate(zip(batch.state, batch.action, batch.reward, batch.next_state)):
+            self.state_batch[i] = self.preprocess(state)
+            self.action_batch[i] = torch.tensor([action], dtype=torch.long, device=self.device)
+            self.reward_batch[i] = torch.tensor([reward], dtype=torch.float32, device=self.device)
+            if next_state is not None:
+                self.next_state_batch[i] = self.preprocess(next_state)
+                self.non_final_mask[i] = True
+            else:
+                self.non_final_mask[i] = False
 
         # Compute Q(s_t, a)
-        state_action_values = self.current_model(state_batch).gather(1, action_batch).squeeze(-1)
+        state_action_values = self.current_model(self.state_batch).gather(1, self.action_batch).squeeze(-1)
 
         # Compute V(s_{t+1}) for all next states
         next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        if non_final_mask.any():
-            next_state_values[non_final_mask] = self.target_model(non_final_next_states).max(1)[0].detach()
+        if self.non_final_mask.any():
+            next_state_values[self.non_final_mask] = self.target_model(self.next_state_batch[self.non_final_mask]).max(1)[0].detach()
 
         # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
+        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + self.reward_batch.squeeze(-1)
 
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.current_model.parameters():
-            param.grad.data.clamp_(-1, 1)
+        torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
         self.optimizer.step()
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
@@ -141,8 +162,8 @@ class DQNAgent(boxing_rl.Agent):
         self.steps_count += 1
 
     def refresh_agent(self):
-        self.current_model = DQNNetwork(boxing_env.state_width, boxing_env.state_height, boxing_env.action_size).to(self.device)
-        self.target_model = DQNNetwork(boxing_env.state_width, boxing_env.state_height, boxing_env.action_size).to(self.device)
+        self.current_model = DQNNetwork(boxing_env.action_size).to(self.device)
+        self.target_model = DQNNetwork(boxing_env.action_size).to(self.device)
         self.target_model.load_state_dict(self.current_model.state_dict())
 
     def serialize_agent(self):
