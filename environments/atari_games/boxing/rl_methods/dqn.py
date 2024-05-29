@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 import pathlib
 import random
 import numpy as np
+from torch.cuda.amp import autocast, GradScaler
 from collections import deque, namedtuple
 import environments.atari_games.boxing.environment as boxing_env
 import environments.atari_games.boxing.rl_methods as boxing_rl
@@ -52,7 +53,7 @@ class DQNAgent(boxing_rl.Agent):
             "alpha": 0.00025,
             "gamma": 0.99,
             "replay_buffer_size": 1000000,
-            "batch_size": 512,
+            "batch_size": 1024,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
@@ -151,11 +152,19 @@ class DQNAgent(boxing_rl.Agent):
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + self.reward_batch.squeeze(-1)
 
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
-        self.optimizer.step()
+        if self.device == 'cuda':
+            scaler = GradScaler()
+            with autocast():
+                loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+            scaler.scale(loss).backward()
+            scaler.step(self.optimizer)
+            scaler.update()
+        else:
+            loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
+            self.optimizer.step()
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
             self.target_model.load_state_dict(self.current_model.state_dict())
