@@ -48,11 +48,11 @@ class DQNAgent(boxing_rl.Agent):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
         self.hyperparameters = {
-            "total_episodes": 1000,
+            "total_episodes": 100,
             "alpha": 0.00025,
             "gamma": 0.99,
             "replay_buffer_size": 1000000,
-            "batch_size": 128,
+            "batch_size": 512,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
