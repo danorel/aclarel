@@ -5,7 +5,7 @@ import environments.cart_pole.cl_methods.teacher_learning as teacher_learning
 import environments.cart_pole.cl_methods.transfer_learning as transfer_learning
  
 from environments.cart_pole.rl_methods import Agent
-from environments.cart_pole.rl_methods.q_table import QLearningAgent
+from environments.cart_pole.rl_methods.q_learning import QLearningAgent
 from environments.cart_pole.rl_methods.dqn import DQNAgent
 
 def get_agent(agent_name, curriculum_name, pretrained: bool = False):
@@ -29,7 +29,7 @@ def get_curriculum(agent: Agent, min_length=0.25, max_length=0.5):
         'linear': self_paced.linear(min_length, max_length),
         'logarithmic': self_paced.logarithmic(min_length, max_length),
         'logistic': self_paced.logistic(min_length, max_length),
-        'mixture': self_paced.mixture(min_length, max_length, switch_point=0.33),
+        'mixture': self_paced.mixture(min_length, max_length, switch_length=0.33),
         'polynomial': self_paced.polynomial(min_length, max_length),
         'anti-curriculum': anti_curriculum.anti_curriculum_learning(min_length, max_length, total_evaluations)
     }

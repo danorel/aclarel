@@ -3,36 +3,34 @@ import numpy as np
 
 from tqdm import tqdm
 
-import environments.cart_pole.metrics as metrics
-import environments.cart_pole.rl_methods as rl_methods
+import environments.atari_games.boxing.metrics as metrics
+import environments.atari_games.boxing.rl_methods as rl_methods
 
 # Initialize environment
-env = gym.make('ALE/Boxing-v5', render_mode='rgb_array')
+num_envs = 4
+env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
 
 # Discretize the observation space
 reward_threshold = 100
-state_size = env.observation_space.shape
+state_width, state_height = 80, 80
 action_size = env.action_space.n
 
-# A function to preprocess the observation (resize, grayscale, etc.)
 def preprocess_observation(observation):
-    observation = np.mean(observation, axis=2).astype(np.uint8)  # Convert to grayscale
-    observation = observation / 255.0  # Normalize to [0, 1]
+    # Crop the image: remove the top of the screen
+    observation = observation[34:194]  # Adjust depending on the game
+    # Downsample by factor of 2
+    observation = observation[::2, ::2]
+    # Convert to grayscale
+    observation = np.mean(observation, axis=2).astype(np.uint8)
+    # Normalize pixel values
+    observation = observation / 255.0
+    # Reshape to include channel dimension
+    observation = observation.reshape(1, 80, 80)  # Add channel dimension for CNN input
     return observation
 
-def update_env_parameters(env, length=None, masscart=None, masspole=None, force_mag=None, gravity=None):
-    if length is not None:
-        env.unwrapped.length = length  # Change pole length
-    if masscart is not None:
-        env.unwrapped.masscart = masscart  # Change cart mass
-        env.unwrapped.total_mass = masscart + env.unwrapped.masspole  # Update total mass of the system
-    if masspole is not None:
-        env.unwrapped.masspole = masspole  # Change pole mass
-        env.unwrapped.total_mass = env.unwrapped.masscart + masspole  # Update total mass of the system
-    if force_mag is not None:
-        env.unwrapped.force_mag = force_mag  # Change the force magnitude applied to the cart
-    if gravity is not None:
-        env.unwrapped.gravity = gravity  # Adjust gravity
+def update_env_parameters(env, frame_skip=None):
+    if frame_skip is not None:
+        env.unwrapped._frameskip = frame_skip
 
 # A function to evaluate RL agent
 def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
@@ -123,8 +121,8 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
 # A function to both train and evaluate RL agent
 def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
-    training_env = gym.make('ALE/Boxing-v5', render_mode='rgb_array')
-    evaluation_env = gym.make('ALE/Boxing-v5', render_mode='human' if use_render else 'rgb_array')
+    training_env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
+    evaluation_env = gym.make('ALE/Boxing-v5', render_mode='human' if use_render else 'rgb_array', frameskip=4)
 
     total_episodes = agent.hyperparameters['total_episodes']
     initial_epsilon = agent.hyperparameters['initial_epsilon']
@@ -138,7 +136,8 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation} (Epsilon={round(epsilon, 5)}):")
-            print(f"\tTraining Pole Length: {round(training_env.unwrapped.length, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            print(f"\tTraining Frameskip: {round(training_env.unwrapped._frameskip, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()

@@ -51,6 +51,7 @@ class QLearningAgent(cart_pole_rl.Agent):
     def train(self, prev_state, action, reward, next_state, done):
         alpha = self.hyperparameters['alpha']
         gamma = self.hyperparameters['gamma']
+        print("prev_state", prev_state)
         self.q_table[prev_state + (action,)] = self.q_table[prev_state + (action,)] + alpha * (reward + gamma * np.max(self.q_table[next_state]) - self.q_table[prev_state + (action,)])
     
     def refresh_agent(self):

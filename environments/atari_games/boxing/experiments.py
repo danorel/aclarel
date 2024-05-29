@@ -1,6 +1,6 @@
-from environments.cart_pole.rl_methods import Agent
-from environments.cart_pole.rl_methods.q_learning import QLearningAgent
-from environments.cart_pole.rl_methods.dqn import DQNAgent
+from environments.atari_games.boxing.rl_methods import Agent
+from environments.atari_games.boxing.rl_methods.q_learning import QLearningAgent
+from environments.atari_games.boxing.rl_methods.dqn import DQNAgent
 
 def get_agent(agent_name, curriculum_name, pretrained: bool = False):
     """Factory function to create agent based on the agent_name."""
