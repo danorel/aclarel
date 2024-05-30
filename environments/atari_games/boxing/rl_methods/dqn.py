@@ -22,13 +22,19 @@ class DQNNetwork(nn.Module):
         self.conv2 = nn.Conv2d(24, 32, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)
 
-        def conv_output_size(size, kernel_size, stride):
-            return (size - kernel_size) // stride + 1
+        def conv2d_output_size(input_size, kernel_size, stride, padding=0):
+            output_size = (input_size - kernel_size + 2 * padding) // stride + 1
+            return output_size
 
-        convw = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[0], 8, 5), 4, 2), 3, 1)
-        convh = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[1], 8, 5), 4, 2), 3, 1)
+        h, w = 84, 84
+        h = conv2d_output_size(h, kernel_size=8, stride=5)
+        w = conv2d_output_size(w, kernel_size=8, stride=5)
+        h = conv2d_output_size(h, kernel_size=4, stride=2)
+        w = conv2d_output_size(w, kernel_size=4, stride=2)
+        h = conv2d_output_size(h, kernel_size=3, stride=1)
+        w = conv2d_output_size(w, kernel_size=3, stride=1)
         
-        linear_input_size = convw * convh * 32
+        linear_input_size = h * w * 32
 
         self.fc1 = nn.Linear(linear_input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, action_size)
@@ -76,6 +82,8 @@ class DQNAgent(boxing_rl.Agent):
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((110, 84)),
+            transforms.CenterCrop((84, 84)),
             transforms.ToTensor(),
         ])
 

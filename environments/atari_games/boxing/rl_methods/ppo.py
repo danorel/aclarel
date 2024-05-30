@@ -18,21 +18,26 @@ class PPONetwork(nn.Module):
     def __init__(self, action_size, hidden_size=64):
         super(PPONetwork, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 24, kernel_size=8, stride=5)
-        self.conv2 = nn.Conv2d(24, 32, kernel_size=4, stride=2)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)
 
-        def conv_output_size(size, kernel_size, stride):
-            return (size - kernel_size) // stride + 1
+        def conv2d_output_size(input_size, kernel_size, stride, padding=0):
+            output_size = (input_size - kernel_size + 2 * padding) // stride + 1
+            return output_size
 
-        convw = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[0], 8, 5), 4, 2), 3, 1)  # Assume 210 as initial height for example
-        convh = conv_output_size(conv_output_size(conv_output_size(boxing_env.env.observation_space.shape[1], 8, 5), 4, 2), 3, 1)  # Assume 160 as initial width for example
+        h, w = 84, 84
+        h = conv2d_output_size(h, kernel_size=8, stride=4)
+        w = conv2d_output_size(w, kernel_size=8, stride=4)
+        h = conv2d_output_size(h, kernel_size=4, stride=2)
+        w = conv2d_output_size(w, kernel_size=4, stride=2)
+        h = conv2d_output_size(h, kernel_size=3, stride=1)
+        w = conv2d_output_size(w, kernel_size=3, stride=1)
 
-        linear_input_size = convw * convh * 32
+        linear_input_size = h * w * 32
 
         self.actor_fc1 = nn.Linear(linear_input_size, hidden_size)
         self.actor_fc2 = nn.Linear(hidden_size, action_size)
-
         self.critic_fc1 = nn.Linear(linear_input_size, hidden_size)
         self.critic_fc2 = nn.Linear(hidden_size, 1)
     
@@ -81,6 +86,8 @@ class PPOAgent(boxing_rl.Agent):
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((110, 84)),
+            transforms.CenterCrop((84, 84)),
             transforms.ToTensor(),
         ])
         self.steps_count = 0
