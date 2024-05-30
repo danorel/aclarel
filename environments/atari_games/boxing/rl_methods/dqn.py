@@ -47,6 +47,8 @@ class DQNAgent(boxing_rl.Agent):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
+        self.autocast = False
+        print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 100,
             "alpha": 0.00025,
@@ -56,8 +58,8 @@ class DQNAgent(boxing_rl.Agent):
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
-            "print_interval": 50,
-            "evaluation_interval": 10,
+            "print_interval": 1,
+            "evaluation_interval": 1,
             "update_interval": 10000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -76,15 +78,6 @@ class DQNAgent(boxing_rl.Agent):
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
         ])
-        batch_size = self.hyperparameters['batch_size']
-        state_shape = (1, boxing_env.env.observation_space.shape[0], boxing_env.env.observation_space.shape[1])
-        action_shape = (batch_size, 1)
-        reward_shape = (batch_size, 1)
-        self.state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
-        self.action_batch = torch.zeros(action_shape, dtype=torch.long, device=self.device)
-        self.reward_batch = torch.zeros(reward_shape, dtype=torch.float32, device=self.device)
-        self.next_state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
-        self.non_final_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
 
     def preprocess_single(self, state):
         return self.transform(state).to(self.device)
@@ -126,30 +119,31 @@ class DQNAgent(boxing_rl.Agent):
         transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
         states, actions, rewards, next_states, dones = zip(*transitions)
 
-        self.state_batch = self.preprocess_batch(states)
-        self.action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
-        self.reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-        self.non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
-        non_final_next_states = [s for s, done in zip(next_states, dones) if not done]
-        if non_final_next_states:
-            non_final_next_states = self.preprocess_batch(non_final_next_states)
+        state_batch = self.preprocess_batch(states)
+        next_state_batch = torch.zeros_like(state_batch)
+        action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
+        reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
+        next_state_batch[non_final_mask] = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
 
-        state_action_values = self.current_model(self.state_batch).gather(1, self.action_batch.unsqueeze(1)).squeeze(-1)
+        state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
 
         next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        next_state_values[self.non_final_mask] = self.target_model(self.next_state_batch).max(1)[0].detach()
+        next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
-        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + self.reward_batch 
-
-        if self.device == 'cuda':
-            scaler = GradScaler()
+        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch 
+        
+        if self.autocast:
             with autocast():
                 loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-            scaler.scale(loss).backward()
-            scaler.step(self.optimizer)
-            scaler.update()
+                self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
+                scaler = GradScaler()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
         else:
             loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+            self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
@@ -157,6 +151,8 @@ class DQNAgent(boxing_rl.Agent):
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
             self.target_model.load_state_dict(self.current_model.state_dict())
+
+        self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
         self.steps_count += 1
 
     def refresh_agent(self):

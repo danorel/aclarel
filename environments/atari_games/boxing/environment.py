@@ -45,7 +45,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
 
     return mean_reward, std_reward, total_reward, success_rate
 
-def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evaluation, total_evaluations):
+def train_agent(env, agent: rl_methods.Agent, curriculum, evaluation, total_evaluations):
     actions_taken = []
     adjustment_factors = []
     terminal_states = []
@@ -54,8 +54,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
     total_episodes = agent.hyperparameters['total_episodes']
     evaluation_interval = agent.hyperparameters['evaluation_interval']
-    minimum_epsilon = agent.hyperparameters['minimum_epsilon']
-    epsilon_decay = agent.hyperparameters['epsilon_decay']
 
     for episode in range(evaluation_interval):
         if curriculum is not None:
@@ -90,34 +88,32 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
         episode_rewards.append(total_reward)
         episode_lengths.append(length)
-        epsilon = max(minimum_epsilon, epsilon * epsilon_decay)
 
     stability = np.std(episode_rewards)
     aar = metrics.aar(episode_rewards, episode_lengths, adjustment_factors)
     ses = metrics.ses(actions_taken, terminal_states)
 
-    return agent, epsilon, aar, ses, stability
+    return agent, aar, ses, stability
 
 def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
     training_env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
     evaluation_env = gym.make('ALE/Boxing-v5', render_mode='human' if use_render else 'rgb_array', frameskip=4)
 
     total_episodes = agent.hyperparameters['total_episodes']
-    initial_epsilon = agent.hyperparameters['initial_epsilon']
     evaluation_interval = agent.hyperparameters['evaluation_interval']
     print_interval = agent.hyperparameters['print_interval']
 
     total_evaluations = total_episodes // evaluation_interval
-    epsilon = initial_epsilon
     for evaluation in tqdm(range(total_evaluations + 1)):
-        agent, epsilon, aar, ses, learning_stability = train_agent(training_env, agent, epsilon, curriculum, evaluation, total_evaluations)
+        agent, aar, ses, learning_stability = train_agent(training_env, agent, curriculum, evaluation, total_evaluations)
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
-            print(f"Evaluation {evaluation} (Epsilon={round(epsilon, 5)}):")
+            print(f"Evaluation {evaluation}:")
             print(f"\tTraining Frameskip: {round(training_env.unwrapped._frameskip, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
             agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()
     agent.serialize_agent()
+    agent.close()
     env.close()

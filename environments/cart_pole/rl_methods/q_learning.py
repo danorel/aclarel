@@ -1,13 +1,30 @@
 import numpy as np
+import torch
 import pathlib
 import environments.cart_pole.environment as cart_pole_env
 import environments.cart_pole.rl_methods as cart_pole_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
+amount_of_bins = 20
+state_bins = [
+    np.linspace(-4.8, 4.8, amount_of_bins),     # Position
+    np.linspace(-4, 4, amount_of_bins),         # Velocity
+    np.linspace(-0.418, 0.418, amount_of_bins), # Angle
+    np.linspace(-4, 4, amount_of_bins)          # Angular velocity
+]
+
+def get_discrete_state(state):
+    index = []
+    for i, val in enumerate(state):
+        index.append(np.digitize(val, state_bins[i]) - 1)
+    return tuple(index)
+
 class QLearningAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 50000,
             "alpha": 0.1,
@@ -19,50 +36,59 @@ class QLearningAgent(cart_pole_rl.Agent):
             "evaluation_interval": 10,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        # Define Q-Learning architecture
         if use_pretrained:
             self.deserialize_agent()
         else:
             self.refresh_agent()
-        # Parameters
         self.epsilon = self.hyperparameters['initial_epsilon']
+        self.total_steps = 0
 
     def act(self, state, greedily: bool = False):
+        state = get_discrete_state(state)
         is_exploratory = False
-
+        state_tensor = torch.tensor(state, device=self.device)
         if greedily:
-            action = np.argmax(self.q_table[state])
+            action = torch.argmax(self.q_table[state_tensor]).item()
         else:
-            epsilon_decay = self.hyperparameters['epsilon_decay']
-            minimum_epsilon = self.hyperparameters['minimum_epsilon']
-
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = cart_pole_env.env.action_space.sample()
             else:
-                is_exploratory = False
-                action = np.argmax(self.q_table[state])
-
-            self.epsilon *= epsilon_decay
-            self.epsilon = max(minimum_epsilon, self.epsilon)
-
+                action = torch.argmax(self.q_table[state_tensor]).item()
+            self.epsilon *= self.hyperparameters['epsilon_decay']
+            self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
         return action, is_exploratory
     
     def train(self, prev_state, action, reward, next_state, done):
-        alpha = self.hyperparameters['alpha']
-        gamma = self.hyperparameters['gamma']
-        print("prev_state", prev_state)
-        self.q_table[prev_state + (action,)] = self.q_table[prev_state + (action,)] + alpha * (reward + gamma * np.max(self.q_table[next_state]) - self.q_table[prev_state + (action,)])
-    
+        prev_state = torch.tensor([get_discrete_state(prev_state)], device=self.device, dtype=torch.long)
+        next_state = torch.tensor([get_discrete_state(next_state)], device=self.device, dtype=torch.long)
+        action = torch.tensor([action], device=self.device, dtype=torch.long)
+
+        current_q_value = self.q_table[prev_state, action].squeeze()
+        max_next_q_value = torch.max(self.q_table[next_state]).detach()
+
+        new_q_value = current_q_value + self.hyperparameters['alpha'] * (reward + self.hyperparameters['gamma'] * max_next_q_value - current_q_value)
+        
+        td_error = new_q_value - current_q_value
+        self.q_table[prev_state, action] = new_q_value
+
+        td_error_mean = td_error.mean().item()
+        self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.total_steps)
+
+        td_error_sum = td_error.sum().item()
+        self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.total_steps)
+
+        self.total_steps += 1
+
     def refresh_agent(self):
-        states = tuple(len(bins) + 1 for bins in cart_pole_env.state_bins)
+        states = tuple(len(bins) + 1 for bins in state_bins)
         actions = (cart_pole_env.action_size,)
-        self.q_table = np.zeros(states + actions, dtype=np.float32)
+        self.q_table = torch.zeros(states + actions, dtype=torch.float32, device=self.device)
 
     def deserialize_agent(self):
-        model_path = self.model_dir / f'{self.hyperparameter_path}.npy' 
-        self.q_table = np.load(model_path, allow_pickle=False)
+        model_path = self.model_dir / f'{self.hyperparameter_path}.pt'
+        self.q_table = torch.load(model_path, map_location=self.device)
 
     def serialize_agent(self):
-        model_path = self.model_dir / f'{self.hyperparameter_path}.npy'
-        np.save(model_path, self.q_table)
+        model_path = self.model_dir / f'{self.hyperparameter_path}.pt'
+        torch.save(self.q_table, model_path)

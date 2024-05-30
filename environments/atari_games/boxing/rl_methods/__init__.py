@@ -2,6 +2,7 @@ import abc
 import pandas as pd
 import pathlib
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 
 ROOT_DIR = pathlib.Path().cwd()
 AGENT_DIR = ROOT_DIR / 'agents' / 'atari_games' / 'boxing'
@@ -11,6 +12,7 @@ class Agent(abc.ABC):
     def __init__(self, agent_name, curriculum_name) -> None:
         super().__init__()
         # Agent metadata and metric collection state
+        self.writer = SummaryWriter()
         self.metadata = {
             "agent_name": agent_name,
             "curriculum_name": curriculum_name
@@ -70,3 +72,6 @@ class Agent(abc.ABC):
             plt.grid(True)
             plt.savefig(measurements_path)
             plt.close()
+
+    def close(self):
+        self.writer.close()

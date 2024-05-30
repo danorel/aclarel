@@ -6,45 +6,26 @@ from tqdm import tqdm
 import environments.cart_pole.metrics as metrics
 import environments.cart_pole.rl_methods as rl_methods
 
-# Initialize environment
 env = gym.make('CartPole-v1', render_mode='rgb_array')
 
-# Discretize the observation space
-amount_of_bins = 20
-state_bins = [
-    np.linspace(-4.8, 4.8, amount_of_bins),     # Position
-    np.linspace(-4, 4, amount_of_bins),         # Velocity
-    np.linspace(-0.418, 0.418, amount_of_bins), # Angle
-    np.linspace(-4, 4, amount_of_bins)          # Angular velocity
-]
-
-# Model dimensions
 reward_threshold = 500
 state_size = 4
 action_size = env.action_space.n
 
 def update_env_parameters(env, length=None, masscart=None, masspole=None, force_mag=None, gravity=None):
     if length is not None:
-        env.unwrapped.length = length  # Change pole length
+        env.unwrapped.length = length
     if masscart is not None:
-        env.unwrapped.masscart = masscart  # Change cart mass
-        env.unwrapped.total_mass = masscart + env.unwrapped.masspole  # Update total mass of the system
+        env.unwrapped.masscart = masscart
+        env.unwrapped.total_mass = masscart + env.unwrapped.masspole
     if masspole is not None:
         env.unwrapped.masspole = masspole  # Change pole mass
-        env.unwrapped.total_mass = env.unwrapped.masscart + masspole  # Update total mass of the system
+        env.unwrapped.total_mass = env.unwrapped.masscart + masspole
     if force_mag is not None:
-        env.unwrapped.force_mag = force_mag  # Change the force magnitude applied to the cart
+        env.unwrapped.force_mag = force_mag
     if gravity is not None:
-        env.unwrapped.gravity = gravity  # Adjust gravity
+        env.unwrapped.gravity = gravity
 
-# A function to convert continuous states to discrete indices
-def get_discrete_state(state):
-    index = []
-    for i, val in enumerate(state):
-        index.append(np.digitize(val, state_bins[i]) - 1)  # Find the bin index for each state dimension
-    return tuple(index)
-
-# A function to evaluate RL agent
 def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
     rewards_per_episode = np.array([])
     successful_episodes = 0
@@ -58,8 +39,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
         done, truncated = False, False
         while not done and not truncated:
             if use_render:
-                env.render()  # Render the environment to visualize the agent's performance
-            state = get_discrete_state(state)
+                env.render()
             action, _ = agent.act(state, greedily=True)
             state, reward, done, truncated, _ = env.step(action)
             reward_per_episode += reward
@@ -76,7 +56,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
     return mean_reward, std_reward, total_reward, success_rate
 
 # A function to train RL agent
-def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evaluation, total_evaluations):
+def train_agent(env, agent: rl_methods.Agent, curriculum, evaluation, total_evaluations):
     actions_taken = []
     adjustment_factors = []
     terminal_states = []
@@ -85,8 +65,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
     total_episodes = agent.hyperparameters['total_episodes']
     evaluation_interval = agent.hyperparameters['evaluation_interval']
-    minimum_epsilon = agent.hyperparameters['minimum_epsilon']
-    epsilon_decay = agent.hyperparameters['epsilon_decay']
 
     for episode in range(evaluation_interval):
         if curriculum is not None:
@@ -101,7 +79,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
             )
 
         state, _ = env.reset()
-        state = get_discrete_state(state)
         done, truncated = False, False
         total_reward = 0
         length = 0
@@ -109,7 +86,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
         while not done and not truncated:
             action, is_exploratory = agent.act(state, greedily=False)
             next_state, reward, done, truncated, _ = env.step(action)
-            next_state = get_discrete_state(next_state)
             agent.train(state, action, reward, next_state, done)
             state = next_state
 
@@ -123,34 +99,31 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
         episode_rewards.append(total_reward)
         episode_lengths.append(length)
-        epsilon = max(minimum_epsilon, epsilon * epsilon_decay)
 
     stability = np.std(episode_rewards)
     aar = metrics.aar(episode_rewards, episode_lengths, adjustment_factors)
     ses = metrics.ses(actions_taken, terminal_states)
 
-    return agent, epsilon, aar, ses, stability
+    return agent, aar, ses, stability
 
-# A function to both train and evaluate RL agent
 def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
     training_env = gym.make('CartPole-v1', render_mode='rgb_array')
     evaluation_env = gym.make('CartPole-v1', render_mode='human' if use_render else 'rgb_array')
 
     total_episodes = agent.hyperparameters['total_episodes']
-    initial_epsilon = agent.hyperparameters['initial_epsilon']
     evaluation_interval = agent.hyperparameters['evaluation_interval']
     print_interval = agent.hyperparameters['print_interval']
 
     total_evaluations = total_episodes // evaluation_interval
-    epsilon = initial_epsilon
     for evaluation in tqdm(range(total_evaluations + 1)):
-        agent, epsilon, aar, ses, learning_stability = train_agent(training_env, agent, epsilon, curriculum, evaluation, total_evaluations)
+        agent, aar, ses, learning_stability = train_agent(training_env, agent, curriculum, evaluation, total_evaluations)
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
-            print(f"Evaluation {evaluation} (Epsilon={round(epsilon, 5)}):")
+            print(f"Evaluation {evaluation} (Epsilon={round(agent.epsilon, 5)}):")
             print(f"\tTraining Pole Length: {round(training_env.unwrapped.length, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()
     agent.serialize_agent()
+    agent.close()
     env.close()

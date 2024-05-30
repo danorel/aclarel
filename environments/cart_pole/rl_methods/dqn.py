@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler
 import pathlib
 import random
 import numpy as np
@@ -25,12 +26,14 @@ class DQNNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-    
+
 class DQNAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
+        self.autocast = False
+        print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 2000,
             "alpha": 0.001,
@@ -45,17 +48,14 @@ class DQNAgent(cart_pole_rl.Agent):
             "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        # Define DQN network
         self.current_model: DQNNetwork = None
         self.target_model: DQNNetwork = None
         if use_pretrained:
             self.deserialize_agent()
         else:
             self.refresh_agent()
-        # Define rest DQN architecture parts
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        # Parameters
         self.epsilon = self.hyperparameters['initial_epsilon']
         self.steps_count = 0
     
@@ -93,36 +93,42 @@ class DQNAgent(cart_pole_rl.Agent):
             return
 
         transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
-        batch = Transition(*zip(*transitions))
+        states, actions, rewards, next_states, dones = zip(*transitions)
 
-        # Convert to tensors and ensure they are the correct shape
-        state_batch = torch.stack([torch.tensor(s, dtype=torch.float32) for s in batch.state]).to(self.device)
-        action_batch = torch.tensor(batch.action, dtype=torch.long).to(self.device).unsqueeze(-1)
-        reward_batch = torch.tensor(batch.reward, dtype=torch.float32).to(self.device)
-        non_final_mask = torch.tensor([s is not None for s in batch.next_state], dtype=torch.bool, device=self.device)
-        non_final_next_states = torch.stack([torch.tensor(s, dtype=torch.float32) for s in batch.next_state if s is not None]).to(self.device)
+        state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
+        action_batch = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(-1)
+        reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
+        non_final_next_states = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
 
-        # Compute Q(s_t, a)
         state_action_values = self.current_model(state_batch).gather(1, action_batch).squeeze(-1)
 
-        # Compute V(s_{t+1}) for all next states
         next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
         if non_final_mask.any():
             next_state_values[non_final_mask] = self.target_model(non_final_next_states).max(1)[0].detach()
 
-        # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
 
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        for param in self.current_model.parameters():
-            param.grad.data.clamp_(-1, 1)
-        self.optimizer.step()
+        if self.autocast:
+            with autocast():
+                loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+                self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
+                scaler = GradScaler()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+        else:
+            loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+            self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
+            self.optimizer.step()
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
             self.target_model.load_state_dict(self.current_model.state_dict())
+
+        self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
         self.steps_count += 1
 
     def refresh_agent(self):
