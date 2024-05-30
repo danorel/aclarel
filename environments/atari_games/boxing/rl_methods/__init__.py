@@ -29,7 +29,7 @@ class Agent(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def train(self, prev_state, action, reward, next_state, done):
+    def train(self, prev_state, action, reward, next_state, done, log_prob):
         pass
 
     @abc.abstractmethod

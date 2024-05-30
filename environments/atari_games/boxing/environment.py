@@ -33,7 +33,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
         while not done and not truncated:
             if use_render:
                 env.render()  # Render the environment to visualize the agent's performance
-            action, _ = agent.act(state, greedily=True)
+            action, _ = agent.act(state)
             state, reward, done, truncated, _ = env.step(action)
             reward_per_episode += reward
             step_count += 1
@@ -79,9 +79,9 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
         length = 0
 
         while not done and not truncated:
-            action, is_exploratory = agent.act(state, greedily=False)
+            action, props = agent.act(state)
             next_state, reward, done, truncated, _ = env.step(action)
-            agent.train(state, action, reward, next_state, done)
+            agent.train(state, action, reward, next_state, done, props['log_prob'])
             state = next_state
 
             total_reward += reward
@@ -89,7 +89,7 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
             adjustment_factor = metrics.adjustment_factor(env, episode, total_episodes)
             adjustment_factors.append(adjustment_factor)
-            actions_taken.append((action, is_exploratory))
+            actions_taken.append((action, props['is_exploratory']))
             terminal_states.append(done)
 
         episode_rewards.append(total_reward)
