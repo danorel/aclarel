@@ -25,7 +25,7 @@ def add_gradient_logging(model, threshold=1e-6):
             parameter.register_hook(hook_function)
 
 class PPONetwork(nn.Module):
-    def __init__(self, action_size, hidden_size=64):
+    def __init__(self, action_size):
         super(PPONetwork, self).__init__()
 
         self.conv1 = nn.Conv2d(1, 16, kernel_size=8, stride=4)
@@ -44,12 +44,9 @@ class PPONetwork(nn.Module):
         h = conv2d_output_size(h, kernel_size=3, stride=1)
         w = conv2d_output_size(w, kernel_size=3, stride=1)
 
-        linear_input_size = h * w * 32
-
-        self.actor_fc1 = nn.Linear(linear_input_size, hidden_size)
-        self.actor_fc2 = nn.Linear(hidden_size, action_size)
-        self.critic_fc1 = nn.Linear(linear_input_size, hidden_size)
-        self.critic_fc2 = nn.Linear(hidden_size, 1)
+        self.linear_input_size = h * w * 32
+        self.actor_fc = nn.Linear(self.linear_input_size, action_size)
+        self.critic_fc = nn.Linear(self.linear_input_size, 1)
     
     def forward(self, state):
         x = F.relu(self.conv1(state))
@@ -57,20 +54,18 @@ class PPONetwork(nn.Module):
         x = F.relu(self.conv3(x))
         x = x.view(x.size(0), -1)
 
-        actor_x = F.relu(self.actor_fc1(x))
-        action_probs = F.softmax(self.actor_fc2(actor_x), dim=-1)
+        action_probs = F.softmax(self.actor_fc(x), dim=-1)
+        values = self.critic_fc(x).squeeze(-1)
 
-        critic_x = F.relu(self.critic_fc1(x))
-        value = self.critic_fc2(critic_x)
-
-        return action_probs, value
+        return action_probs, values
 
 class PPOAgent(boxing_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
-        self.autocast = False
+        self.autocast = True
+        self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 4,
@@ -118,6 +113,41 @@ class PPOAgent(boxing_rl.Agent):
         action = dist.sample()
         log_prob = dist.log_prob(action)
         return action.item(), dict(is_exploratory=False, log_prob=log_prob) 
+    
+    def compute_gae(self, next_values, rewards, dones, values):
+        returns = torch.zeros_like(rewards)
+        advantages = torch.zeros_like(rewards)
+        gae = 0
+        dones = dones.float()
+        for t in reversed(range(len(rewards))):
+            delta = rewards[t] + self.hyperparameters['gamma'] * next_values[t] * (1 - dones[t]) - values[t]
+            gae = delta + self.hyperparameters['gamma'] * self.hyperparameters['gae_lambda'] * gae * (1 - dones[t])
+            advantages[t] = gae
+            returns[t] = gae + values[t]
+        return returns, advantages
+
+    def compute_loss(self, action_probs, values, actions, rewards, next_states, dones, log_probs):
+        values = values.squeeze(-1)
+        
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        dones = torch.tensor(dones, dtype=torch.bool, device=self.device)
+        old_log_probs = torch.tensor(log_probs, dtype=torch.float32, device=self.device)
+
+        returns, advantages = self.compute_gae(next_states, rewards, dones, values)
+
+        probs_distribution = torch.distributions.Categorical(action_probs)
+        new_log_probs = probs_distribution.log_prob(torch.tensor(actions, device=self.device)).squeeze()
+
+        ratios = torch.exp(new_log_probs - old_log_probs)
+
+        surr1 = ratios * advantages
+        surr2 = torch.clamp(ratios, 1.0 - self.hyperparameters['clip_epsilon'], 1.0 + self.hyperparameters['clip_epsilon']) * advantages
+        policy_loss = -torch.min(surr1, surr2).mean()
+
+        value_loss = F.mse_loss(values, returns)
+
+        total_loss = policy_loss + 0.5 * value_loss
+        return total_loss
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
         self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done, log_prob))
@@ -129,58 +159,33 @@ class PPOAgent(boxing_rl.Agent):
         states, actions, rewards, next_states, dones, log_probs = zip(*transitions)
 
         state_batch = self.preprocess_batch(states)
-        next_state_batch = torch.zeros_like(state_batch)
+        next_state_batch = self.preprocess_batch(next_states)
         action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
         reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-        non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
-        next_state_batch[non_final_mask] = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
+        done_batch = torch.tensor(dones, dtype=torch.bool, device=self.device)
+        log_prob_batch = torch.tensor(log_probs, dtype=torch.float32, device=self.device)
 
-        action_probs, values = self.model(state_batch)
-        probs_distribution = torch.distributions.Categorical(action_probs)
-        value_preds = values.squeeze(-1)
+        action_probs, state_values = self.model(state_batch)
+        _, next_state_values = self.model(next_state_batch)
+        
+        next_state_values = next_state_values.detach()
 
-        returns = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        advantages = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        next_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        if non_final_mask.any():
-            _, next_value_preds = self.model(next_state_batch[non_final_mask])
-            next_values[non_final_mask] = next_value_preds.detach().squeeze(-1)
+        total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
 
-        deltas = reward_batch.squeeze(-1) + self.hyperparameters['gamma'] * next_values - value_preds
-        last_gae_lam = 0
-        for t in reversed(range(self.hyperparameters['batch_size'])):
-            last_gae_lam = deltas[t] + self.hyperparameters['gamma'] * self.hyperparameters['gae_lambda'] * last_gae_lam * (1 - int(non_final_mask[t]))
-            advantages[t] = last_gae_lam
-        returns = advantages + value_preds
-
-        old_log_probs_batch = torch.tensor(log_probs, dtype=torch.float, device=self.device).detach()
-        new_log_probs = probs_distribution.log_prob(action_batch).squeeze(-1)
-        ratio = torch.exp(new_log_probs - old_log_probs_batch)
-        surr1 = ratio * advantages
-        surr2 = torch.clamp(ratio, 1 - self.hyperparameters['clip_epsilon'], 1 + self.hyperparameters['clip_epsilon']) * advantages
-
-        policy_loss = -torch.min(surr1, surr2).mean()
-        value_loss = F.mse_loss(value_preds, returns)
-        total_loss = policy_loss + 0.5 * value_loss
-
-        self.writer.add_scalar('Loss/total_loss', total_loss.item(), self.steps_count)
-        self.writer.add_scalar('Loss/policy_loss', policy_loss.item(), self.steps_count)
-        self.writer.add_scalar('Loss/value_loss', value_loss.item(), self.steps_count)
-
+        self.optimizer.zero_grad()
         if self.autocast:
-            self.optimizer.zero_grad()
             with autocast():
-                scaler = GradScaler()
-                scaler.scale(total_loss).backward()
-                scaler.step(self.optimizer)
-                scaler.update()
+                self.scaler.scale(total_loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
         else:
-            self.optimizer.zero_grad()
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
             self.optimizer.step()
         
-        self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
+        self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
+        self.writer.add_scalar('Performance/Reward', reward_batch.mean().item(), self.steps_count)
+
         self.steps_count += 1
 
     def refresh_agent(self):

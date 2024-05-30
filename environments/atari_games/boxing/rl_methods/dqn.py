@@ -63,7 +63,8 @@ class DQNAgent(boxing_rl.Agent):
         super().__init__(agent_name, curriculum_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {self.device}")
-        self.autocast = False
+        self.autocast = True
+        self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 100,
@@ -79,8 +80,8 @@ class DQNAgent(boxing_rl.Agent):
             "update_interval": 10000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        self.current_model: DQNNetwork = None
-        self.target_model: DQNNetwork = None
+        self.current_model = DQNNetwork(boxing_env.action_size).to(self.device)
+        self.target_model = DQNNetwork(boxing_env.action_size).to(self.device)
         if use_pretrained:
             self.deserialize_agent()
         else:
@@ -155,30 +156,27 @@ class DQNAgent(boxing_rl.Agent):
 
         expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
         
+        total_loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+
+        self.optimizer.zero_grad()
         if self.autocast:
             with autocast():
-                loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-                self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
-                scaler = GradScaler()
-                scaler.scale(loss).backward()
-                scaler.step(self.optimizer)
-                scaler.update()
+                self.scaler.scale(total_loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
         else:
-            loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-            self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
-            self.optimizer.zero_grad()
-            loss.backward()
+            total_loss.backward()
             self.optimizer.step()
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
             self.target_model.load_state_dict(self.current_model.state_dict())
 
+        self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
         self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
+
         self.steps_count += 1
 
     def refresh_agent(self):
-        self.current_model = DQNNetwork(boxing_env.action_size).to(self.device)
-        self.target_model = DQNNetwork(boxing_env.action_size).to(self.device)
         self.target_model.load_state_dict(self.current_model.state_dict())
         add_gradient_logging(self.current_model)
 
