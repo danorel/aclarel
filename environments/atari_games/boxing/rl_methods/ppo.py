@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import pathlib
 import random
-import numpy as np
 from torch.cuda.amp import autocast, GradScaler
 from collections import deque, namedtuple
 import environments.atari_games.boxing.environment as boxing_env
@@ -64,33 +63,26 @@ class PPOAgent(boxing_rl.Agent):
             "gae_lambda": 0.95,
             "replay_buffer_size": 1000000,
             "batch_size": 256,
-            "initial_epsilon": 1.0,
-            "minimum_epsilon": 0.01,
-            "epsilon_decay": 0.995,
             "print_interval": 50,
             "evaluation_interval": 1,
             "update_interval": 10000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        # Define DQN network
         self.model: PPONetwork = None
         if use_pretrained:
             self.deserialize_agent()
         else:
             self.refresh_agent()
-        # Define rest DQN architecture parts
+
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.hyperparameters['alpha'])
-        # Parameters
-        self.epsilon = self.hyperparameters['initial_epsilon']
-        self.steps_count = 0
-        # Pre-processing
+
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
         ])
-        # Pre-allocated tensors
+
         batch_size = self.hyperparameters['batch_size']
         state_shape = (1, boxing_env.env.observation_space.shape[0], boxing_env.env.observation_space.shape[1])
         action_shape = (batch_size, 1)
@@ -101,12 +93,16 @@ class PPOAgent(boxing_rl.Agent):
         self.next_state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
         self.non_final_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
 
-    def preprocess(self, state):
+    def preprocess_single(self, state):
         state = self.transform(state)
         return state.to(self.device)
     
+    def preprocess_batch(self, states):
+        state_tensors = torch.stack([self.transform(state) for state in states])
+        return state_tensors.to(self.device)
+    
     def act(self, state, greedily: bool = False):
-        state_tensor = self.preprocess(state).unsqueeze(0)  # Process state
+        state_tensor = self.preprocess_single(state).unsqueeze(0)
         with torch.no_grad():
             action_probs, _ = self.model(state_tensor)
         dist = torch.distributions.Categorical(action_probs)
@@ -115,34 +111,25 @@ class PPOAgent(boxing_rl.Agent):
         return action.item(), dict(is_exploratory=False, log_prob=log_prob) 
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
-        # Append new transition to the replay buffer
         self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done, log_prob))
         
-        # Ensure enough samples are available for batch processing
         if len(self.replay_buffer) < self.hyperparameters['batch_size']:
             return
 
-        # Sample a batch of transitions from the replay buffer
         transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
-        batch = Transition(*zip(*transitions))
-        
-        # Convert to tensors and ensure they are on the correct device
-        for i, (state, action, reward, next_state, done, log_prob) in enumerate(zip(*batch)):
-            self.state_batch[i] = self.preprocess(state)
-            self.action_batch[i] = torch.tensor([action], dtype=torch.long, device=self.device)
-            self.reward_batch[i] = torch.tensor([reward], dtype=torch.float32, device=self.device)
-            if not done:
-                self.next_state_batch[i] = self.preprocess(next_state)
-                self.non_final_mask[i] = True
-            else:
-                self.non_final_mask[i] = False
+        states, actions, rewards, next_states, dones, log_probs = zip(*transitions)
 
-        # Perform PPO updates
+        self.state_batch = self.preprocess_batch(states)
+        self.next_state_batch = torch.zeros_like(self.state_batch)
+        self.action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
+        self.reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        self.non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
+        self.next_state_batch[self.non_final_mask] = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
+
         action_probs, values = self.model(self.state_batch)
         probs_distribution = torch.distributions.Categorical(action_probs)
         value_preds = values.squeeze(-1)
 
-        # Calculate advantages and returns
         returns = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
         advantages = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
         next_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
@@ -157,7 +144,7 @@ class PPOAgent(boxing_rl.Agent):
             advantages[t] = last_gae_lam
         returns = advantages + value_preds
 
-        old_log_probs_batch = torch.tensor(batch.log_prob, dtype=torch.float, device=self.device).detach()
+        old_log_probs_batch = torch.tensor(log_probs, dtype=torch.float, device=self.device).detach()
         new_log_probs = probs_distribution.log_prob(self.action_batch).squeeze(-1)
         ratio = torch.exp(new_log_probs - old_log_probs_batch)
         surr1 = ratio * advantages
@@ -166,7 +153,6 @@ class PPOAgent(boxing_rl.Agent):
         value_loss = F.mse_loss(value_preds, returns)
         total_loss = policy_loss + 0.5 * value_loss
 
-        # Optimizer updates
         self.optimizer.zero_grad()
         if self.device == 'cuda':
             scaler = GradScaler()
@@ -178,7 +164,6 @@ class PPOAgent(boxing_rl.Agent):
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
             self.optimizer.step()
-        self.steps_count += 1
 
     def refresh_agent(self):
         self.model = PPONetwork(boxing_env.env.action_space.n).to(self.device)

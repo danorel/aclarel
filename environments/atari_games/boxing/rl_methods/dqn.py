@@ -22,7 +22,6 @@ class DQNNetwork(nn.Module):
         self.conv2 = nn.Conv2d(24, 32, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)
 
-        # Calculate the size of the output from the last convolutional layer
         def conv_output_size(size, kernel_size, stride):
             return (size - kernel_size) // stride + 1
 
@@ -62,26 +61,21 @@ class DQNAgent(boxing_rl.Agent):
             "update_interval": 10000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        # Define DQN network
         self.current_model: DQNNetwork = None
         self.target_model: DQNNetwork = None
         if use_pretrained:
             self.deserialize_agent()
         else:
             self.refresh_agent()
-        # Define rest DQN architecture parts
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        # Parameters
         self.epsilon = self.hyperparameters['initial_epsilon']
         self.steps_count = 0
-        # Pre-processing
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
         ])
-        # Pre-allocated tensors
         batch_size = self.hyperparameters['batch_size']
         state_shape = (1, boxing_env.env.observation_space.shape[0], boxing_env.env.observation_space.shape[1])
         action_shape = (batch_size, 1)
@@ -92,16 +86,18 @@ class DQNAgent(boxing_rl.Agent):
         self.next_state_batch = torch.zeros((batch_size,) + state_shape, dtype=torch.float32, device=self.device)
         self.non_final_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
 
-    def preprocess(self, state):
-        state = self.transform(state)
-        return state.to(self.device)
+    def preprocess_single(self, state):
+        return self.transform(state).to(self.device)
+    
+    def preprocess_batch(self, states):
+        return torch.stack([self.transform(state) for state in states]).to(self.device)
 
     def act(self, state, greedily: bool = False):
         is_exploratory = False
 
         if greedily:
             with torch.no_grad():
-                state_tensor = self.preprocess(state).unsqueeze(0)  # Ensure preprocessing is applied
+                state_tensor = self.preprocess_single(state).unsqueeze(0)
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
@@ -113,14 +109,14 @@ class DQNAgent(boxing_rl.Agent):
                 action = boxing_env.env.action_space.sample()
             else:
                 with torch.no_grad():
-                    state_tensor = self.preprocess(state).unsqueeze(0)  # Ensure preprocessing is applied
+                    state_tensor = self.preprocess_single(state).unsqueeze(0)
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
 
             self.epsilon *= epsilon_decay
             self.epsilon = max(minimum_epsilon, self.epsilon)
         
-        return action, dict(is_exploratory=False, log_prob=None)
+        return action, dict(is_exploratory=is_exploratory, log_prob=None)
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
         self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
@@ -128,29 +124,22 @@ class DQNAgent(boxing_rl.Agent):
             return
 
         transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
-        batch = Transition(*zip(*transitions))
+        states, actions, rewards, next_states, dones = zip(*transitions)
 
-        # Convert to tensors and ensure they are the correct shape
-        for i, (state, action, reward, next_state) in enumerate(zip(batch.state, batch.action, batch.reward, batch.next_state)):
-            self.state_batch[i] = self.preprocess(state)
-            self.action_batch[i] = torch.tensor([action], dtype=torch.long, device=self.device)
-            self.reward_batch[i] = torch.tensor([reward], dtype=torch.float32, device=self.device)
-            if next_state is not None:
-                self.next_state_batch[i] = self.preprocess(next_state)
-                self.non_final_mask[i] = True
-            else:
-                self.non_final_mask[i] = False
+        self.state_batch = self.preprocess_batch(states)
+        self.action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
+        self.reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        self.non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
+        non_final_next_states = [s for s, done in zip(next_states, dones) if not done]
+        if non_final_next_states:
+            non_final_next_states = self.preprocess_batch(non_final_next_states)
 
-        # Compute Q(s_t, a)
-        state_action_values = self.current_model(self.state_batch).gather(1, self.action_batch).squeeze(-1)
+        state_action_values = self.current_model(self.state_batch).gather(1, self.action_batch.unsqueeze(1)).squeeze(-1)
 
-        # Compute V(s_{t+1}) for all next states
         next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-        if self.non_final_mask.any():
-            next_state_values[self.non_final_mask] = self.target_model(self.next_state_batch[self.non_final_mask]).max(1)[0].detach()
+        next_state_values[self.non_final_mask] = self.target_model(self.next_state_batch).max(1)[0].detach()
 
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + self.reward_batch.squeeze(-1)
+        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + self.reward_batch 
 
         if self.device == 'cuda':
             scaler = GradScaler()

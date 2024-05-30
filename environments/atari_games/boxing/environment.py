@@ -6,11 +6,9 @@ from tqdm import tqdm
 import environments.atari_games.boxing.metrics as metrics
 import environments.atari_games.boxing.rl_methods as rl_methods
 
-# Initialize environment
 num_envs = 4
 env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
 
-# Discretize the observation space
 reward_threshold = 100
 action_size = env.action_space.n
 
@@ -18,7 +16,6 @@ def update_env_parameters(env, frame_skip=None):
     if frame_skip is not None:
         env.unwrapped._frameskip = frame_skip
 
-# A function to evaluate RL agent
 def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
     rewards_per_episode = np.array([])
     successful_episodes = 0
@@ -32,7 +29,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
         done, truncated = False, False
         while not done and not truncated:
             if use_render:
-                env.render()  # Render the environment to visualize the agent's performance
+                env.render()
             action, _ = agent.act(state)
             state, reward, done, truncated, _ = env.step(action)
             reward_per_episode += reward
@@ -48,7 +45,6 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
 
     return mean_reward, std_reward, total_reward, success_rate
 
-# A function to train RL agent
 def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evaluation, total_evaluations):
     actions_taken = []
     adjustment_factors = []
@@ -102,7 +98,6 @@ def train_agent(env, agent: rl_methods.Agent, epsilon: float, curriculum, evalua
 
     return agent, epsilon, aar, ses, stability
 
-# A function to both train and evaluate RL agent
 def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
     training_env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
     evaluation_env = gym.make('ALE/Boxing-v5', render_mode='human' if use_render else 'rgb_array', frameskip=4)
