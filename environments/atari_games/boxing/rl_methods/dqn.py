@@ -57,10 +57,10 @@ class DQNAgent(boxing_rl.Agent):
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 100,
-            "alpha": 0.00025,
+            "alpha": 0.002,
             "gamma": 0.99,
             "replay_buffer_size": 1000000,
-            "batch_size": 256,
+            "batch_size": 2048,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,

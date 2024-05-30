@@ -64,12 +64,12 @@ class PPOAgent(boxing_rl.Agent):
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 4,
-            "alpha": 0.00025,
+            "alpha": 0.002,
             "gamma": 0.99,
             "clip_epsilon": 0.2,
             "gae_lambda": 0.95,
             "replay_buffer_size": 1000000,
-            "batch_size": 256,
+            "batch_size": 2048,
             "print_interval": 1,
             "evaluation_interval": 1,
         }
