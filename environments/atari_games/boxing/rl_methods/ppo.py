@@ -14,6 +14,16 @@ agent_name = pathlib.Path(__file__).resolve().stem
 
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done', 'log_prob'))
 
+def add_gradient_logging(model, threshold=1e-6):
+    for name, parameter in model.named_parameters():
+        if parameter.requires_grad:
+            def hook_function(grad, name=name):
+                grad_norm = grad.norm().item()
+                if grad_norm < threshold:
+                    print(f"Vanishing grad detected for {name}: {grad_norm}")
+
+            parameter.register_hook(hook_function)
+
 class PPONetwork(nn.Module):
     def __init__(self, action_size, hidden_size=64):
         super(PPONetwork, self).__init__()
@@ -175,6 +185,7 @@ class PPOAgent(boxing_rl.Agent):
 
     def refresh_agent(self):
         self.model = PPONetwork(boxing_env.env.action_space.n).to(self.device)
+        add_gradient_logging(self.model)
 
     def serialize_agent(self):
         model_path = self.model_dir / f'{self.hyperparameter_path}.pth'

@@ -15,6 +15,16 @@ agent_name = pathlib.Path(__file__).resolve().stem
 
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
 
+def add_gradient_logging(model, threshold=1e-6):
+    for name, parameter in model.named_parameters():
+        if parameter.requires_grad:
+            def hook_function(grad, name=name):
+                grad_norm = grad.norm().item()
+                if grad_norm < threshold:
+                    print(f"Vanishing grad detected for {name}: {grad_norm}")
+
+            parameter.register_hook(hook_function)
+
 class DQNNetwork(nn.Module):
     def __init__(self, action_size, hidden_size = 64):
         super(DQNNetwork, self).__init__()
@@ -128,18 +138,22 @@ class DQNAgent(boxing_rl.Agent):
         states, actions, rewards, next_states, dones = zip(*transitions)
 
         state_batch = self.preprocess_batch(states)
-        next_state_batch = torch.zeros_like(state_batch)
+        next_state_batch = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
+
         action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
         reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
         non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
-        next_state_batch[non_final_mask] = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
-
         state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
+        next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
+
+        if non_final_mask.any():
+            next_values = self.target_model(next_state_batch).max(1)[0].detach()
+            next_state_values[non_final_mask] = next_values
 
         next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
         next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
-        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch 
+        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
         
         if self.autocast:
             with autocast():
@@ -154,7 +168,6 @@ class DQNAgent(boxing_rl.Agent):
             self.writer.add_scalar('Loss/loss', loss.item(), self.steps_count)
             self.optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1)
             self.optimizer.step()
 
         if self.steps_count % self.hyperparameters['update_interval'] == 0:
@@ -167,6 +180,7 @@ class DQNAgent(boxing_rl.Agent):
         self.current_model = DQNNetwork(boxing_env.action_size).to(self.device)
         self.target_model = DQNNetwork(boxing_env.action_size).to(self.device)
         self.target_model.load_state_dict(self.current_model.state_dict())
+        add_gradient_logging(self.current_model)
 
     def serialize_agent(self):
         model_path = self.model_dir / f'{self.hyperparameter_path}.pth'
