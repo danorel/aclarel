@@ -25,6 +25,9 @@ class Agent(abc.ABC):
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.measurements_dir = MEASUREMENTS_DIR / curriculum_name / agent_name
         self.measurements_dir.mkdir(parents=True, exist_ok=True)
+        # Tracking steps over time
+        self.steps_count = 0
+
     
     @abc.abstractmethod
     def act(self, state, greedily: bool = False):
@@ -60,6 +63,12 @@ class Agent(abc.ABC):
         }])
         if not measurement.isna().any().any():
             self.measurements = pd.concat([self.measurements, measurement], ignore_index=True)
+            self.writer.add_scalar('Performance/Mean_Reward', mean_reward, self.steps_count)
+            self.writer.add_scalar('Performance/Std_Reward', std_reward, self.steps_count)
+            self.writer.add_scalar('Performance/Total_Reward', total_reward, self.steps_count)
+            self.writer.add_scalar('Performance/Success_Rate', success_rate, self.steps_count)
+            self.writer.add_scalar('Performance/AAR', aar, self.steps_count)
+            self.writer.add_scalar('Performance/SES', ses, self.steps_count)
 
     def plot_measurements(self):
         for metric in self.measurements.columns.difference([*self.metadata.keys(), 'evaluation']):

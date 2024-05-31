@@ -1,12 +1,12 @@
-import environments.cart_pole.cl_methods.pre_defined as pre_defined 
-import environments.cart_pole.cl_methods.self_paced as self_paced
-import environments.cart_pole.cl_methods.anti_curriculum as anti_curriculum
-import environments.cart_pole.cl_methods.teacher_learning as teacher_learning
-import environments.cart_pole.cl_methods.transfer_learning as transfer_learning
+import environments.mountain_car.cl_methods.pre_defined as pre_defined 
+import environments.mountain_car.cl_methods.self_paced as self_paced
+import environments.mountain_car.cl_methods.anti_curriculum as anti_curriculum
+import environments.mountain_car.cl_methods.teacher_learning as teacher_learning
+import environments.mountain_car.cl_methods.transfer_learning as transfer_learning
  
-from environments.cart_pole.rl_methods import Agent
-from environments.cart_pole.rl_methods.q_learning import QLearningAgent
-from environments.cart_pole.rl_methods.dqn import DQNAgent
+from environments.mountain_car.rl_methods import Agent
+from environments.mountain_car.rl_methods.q_learning import QLearningAgent
+from environments.mountain_car.rl_methods.dqn import DQNAgent
 
 def get_agent(agent_name, curriculum_name, pretrained: bool = False):
     """Factory function to create agent based on the agent_name."""

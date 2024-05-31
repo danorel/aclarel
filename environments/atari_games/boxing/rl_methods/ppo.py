@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 import pathlib
 import random
 from torch.cuda.amp import autocast, GradScaler
+from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
 import environments.atari_games.boxing.environment as boxing_env
@@ -81,7 +82,7 @@ class PPOAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 4,
+            "total_episodes": 10,
             "alpha": 0.002,
             "gamma": 0.99,
             "clip_epsilon": 0.2,
@@ -89,6 +90,7 @@ class PPOAgent(boxing_rl.Agent):
             "replay_buffer_size": 1000000,
             "batch_size": 2048,
             "print_interval": 1,
+            'train_interval': 50,
             "evaluation_interval": 1,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -97,17 +99,15 @@ class PPOAgent(boxing_rl.Agent):
             self.deserialize_agent()
         else:
             self.refresh_agent()
-
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.hyperparameters['alpha'])
-
+        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
             transforms.Resize((42, 42)),
             transforms.ToTensor(),
         ])
-        self.steps_count = 0
 
     def preprocess_single(self, state):
         state = self.transform(state)
@@ -157,13 +157,19 @@ class PPOAgent(boxing_rl.Agent):
         value_loss = F.mse_loss(values, returns)
 
         total_loss = policy_loss + 0.5 * value_loss
+
         return total_loss
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
         with profile(**profiler_settings) as prof:
+            self.steps_count += 1
+
             self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done, log_prob))
             
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
+                return
+            
+            if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
@@ -182,6 +188,7 @@ class PPOAgent(boxing_rl.Agent):
             next_state_values = next_state_values.detach()
 
             total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
+            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
 
             self.optimizer.zero_grad()
             if self.autocast:
@@ -194,12 +201,8 @@ class PPOAgent(boxing_rl.Agent):
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
                 self.optimizer.step()
 
+            self.lr_scheduler.step()
             prof.step()
-            
-            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
-            self.writer.add_scalar('Performance/Reward', reward_batch.mean().item(), self.steps_count)
-
-            self.steps_count += 1
 
     def refresh_agent(self):
         add_gradient_logging(self.model)

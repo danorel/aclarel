@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
+from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 import pathlib
 import random
@@ -68,6 +69,7 @@ class DQNAgent(cart_pole_rl.Agent):
             "epsilon_decay": 0.999,
             "print_interval": 10,
             "evaluation_interval": 10,
+            'train_interval': 10,
             "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -79,8 +81,8 @@ class DQNAgent(cart_pole_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
+        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
         self.epsilon = self.hyperparameters['initial_epsilon']
-        self.steps_count = 0
     
     def act(self, state, greedily: bool = False):
         is_exploratory = False
@@ -112,8 +114,13 @@ class DQNAgent(cart_pole_rl.Agent):
 
     def train(self, prev_state, action, reward, next_state, done):
         with profile(**profiler_settings) as prof:
+            self.steps_count += 1
+
             self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
+                return
+            
+            if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
@@ -149,15 +156,13 @@ class DQNAgent(cart_pole_rl.Agent):
                 total_loss.backward()
                 self.optimizer.step()
             
+            self.lr_scheduler.step()
             prof.step()
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:
                 self.target_model.load_state_dict(self.current_model.state_dict())
 
             self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
-            self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
-
-            self.steps_count += 1
 
     def refresh_agent(self):
         self.target_model.load_state_dict(self.current_model.state_dict())

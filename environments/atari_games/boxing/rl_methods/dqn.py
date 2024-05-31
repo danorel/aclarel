@@ -7,6 +7,7 @@ import pathlib
 import random
 import numpy as np
 from torch.cuda.amp import autocast, GradScaler
+from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
 import environments.atari_games.boxing.environment as boxing_env
@@ -79,7 +80,7 @@ class DQNAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 5,
+            "total_episodes": 10,
             "alpha": 0.002,
             "gamma": 0.99,
             "replay_buffer_size": 1000000,
@@ -89,7 +90,8 @@ class DQNAgent(boxing_rl.Agent):
             "epsilon_decay": 0.995,
             "print_interval": 1,
             "evaluation_interval": 1,
-            "update_interval": 10000
+            'train_interval': 50,
+            "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(boxing_env.env.action_space.n).to(self.device)
@@ -100,14 +102,14 @@ class DQNAgent(boxing_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        self.epsilon = self.hyperparameters['initial_epsilon']
-        self.steps_count = 0
+        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
             transforms.Resize((42, 42)),
             transforms.ToTensor(),
         ])
+        self.epsilon = self.hyperparameters['initial_epsilon']
 
     def preprocess_single(self, state):
         return self.transform(state).to(self.device)
@@ -143,8 +145,13 @@ class DQNAgent(boxing_rl.Agent):
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
         with profile(**profiler_settings) as prof:
+            self.steps_count += 1
+
             self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
+                return
+            
+            if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
@@ -169,6 +176,7 @@ class DQNAgent(boxing_rl.Agent):
             expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
             
             total_loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
 
             self.optimizer.zero_grad()
             if self.autocast:
@@ -180,15 +188,11 @@ class DQNAgent(boxing_rl.Agent):
                 total_loss.backward()
                 self.optimizer.step()
 
+            self.lr_scheduler.step()
             prof.step()
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:
                 self.target_model.load_state_dict(self.current_model.state_dict())
-
-            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
-            self.writer.add_scalar('Performance/Reward', torch.mean(reward_batch).item(), self.steps_count)
-
-            self.steps_count += 1
 
     def refresh_agent(self):
         self.target_model.load_state_dict(self.current_model.state_dict())

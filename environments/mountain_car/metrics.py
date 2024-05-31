@@ -12,17 +12,17 @@ def ses(actions_taken, terminal_states):
     return safe_actions / exploration_actions if exploration_actions > 0 else 0
 
 def adjustment_factor(env, episode, total_episodes):
-    min_pole_length = 0.25
-    max_pole_length = 0.5
+    min_gravity = 0.0025
+    max_gravity = 0.025
 
-    current_pole_length = env.unwrapped.length
+    current_gravity = env.unwrapped.gravity
 
-    if current_pole_length <= max_pole_length:
-        length_adjustment = max_pole_length / current_pole_length
+    if current_gravity <= max_gravity:
+        length_adjustment = max_gravity / current_gravity
     else:
         length_adjustment = 1
 
-    episode_factor = 1 + (episode / total_episodes) * (min_pole_length / current_pole_length - 1)
+    episode_factor = 1 + (episode / total_episodes) * (min_gravity / current_gravity - 1)
 
     adjustment_factor = length_adjustment * episode_factor
     

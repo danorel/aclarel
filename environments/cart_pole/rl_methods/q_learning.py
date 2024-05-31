@@ -53,7 +53,6 @@ class QLearningAgent(cart_pole_rl.Agent):
         else:
             self.refresh_agent()
         self.epsilon = self.hyperparameters['initial_epsilon']
-        self.total_steps = 0
 
     def act(self, state, greedily: bool = False):
         state = get_discrete_state(state)
@@ -73,6 +72,8 @@ class QLearningAgent(cart_pole_rl.Agent):
     
     def train(self, prev_state, action, reward, next_state, done):
         with profile(**profiler_settings) as prof:
+            self.steps_count += 1
+
             prev_state = torch.tensor([get_discrete_state(prev_state)], device=self.device, dtype=torch.long)
             next_state = torch.tensor([get_discrete_state(next_state)], device=self.device, dtype=torch.long)
             action = torch.tensor([action], device=self.device, dtype=torch.long)
@@ -86,14 +87,12 @@ class QLearningAgent(cart_pole_rl.Agent):
             self.q_table[prev_state, action] = new_q_value
 
             td_error_mean = td_error.mean().item()
-            self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.total_steps)
+            self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
 
             td_error_sum = td_error.sum().item()
-            self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.total_steps)
+            self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.steps_count)
 
             prof.step()
-
-            self.total_steps += 1
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)

@@ -1,7 +1,7 @@
 import argparse
 
-import environments.cart_pole.environment as cart_pole
-import environments.cart_pole.experiments as experiments
+import environments.mountain_car.environment as mountain_car 
+import environments.mountain_car.experiments as experiments
 
 def main():
     parser = argparse.ArgumentParser(
@@ -21,7 +21,7 @@ def main():
     curriculum = experiments.get_curriculum(agent)
 
     print(f"Running RL agent '{args.agent_name}' via CL method '{args.curriculum_name}'")
-    cart_pole.train_evaluate(
+    mountain_car.train_evaluate(
         agent=agent,
         curriculum=curriculum, 
         use_render=args.use_render
