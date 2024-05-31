@@ -8,9 +8,7 @@ import environments.atari_games.boxing.rl_methods as rl_methods
 
 num_envs = 4
 env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
-
-reward_threshold = 100
-action_size = env.action_space.n
+optimal_mean_reward = 100
 
 def update_env_parameters(env, frame_skip=None):
     if frame_skip is not None:
@@ -35,7 +33,7 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
             reward_per_episode += reward
             step_count += 1
         rewards_per_episode = np.append(rewards_per_episode, reward_per_episode)
-        if reward_per_episode >= reward_threshold:
+        if reward_per_episode >= optimal_mean_reward:
             successful_episodes += 1
 
     mean_reward = rewards_per_episode.mean()

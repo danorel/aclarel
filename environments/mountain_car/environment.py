@@ -3,25 +3,21 @@ import numpy as np
 
 from tqdm import tqdm
 
-import environments.cart_pole.metrics as metrics
-import environments.cart_pole.rl_methods as rl_methods
+import environments.mountain_car.metrics as metrics
+import environments.mountain_car.rl_methods as rl_methods
 
-env = gym.make('CartPole-v1', render_mode='rgb_array')
-optimal_mean_reward = 500
+env = gym.make('MountainCar-v0', render_mode='rgb_array')
+optimal_mean_reward = -110
 
-def update_env_parameters(env, length=None, masscart=None, masspole=None, force_mag=None, gravity=None):
-    if length is not None:
-        env.unwrapped.length = length
-    if masscart is not None:
-        env.unwrapped.masscart = masscart
-        env.unwrapped.total_mass = masscart + env.unwrapped.masspole
-    if masspole is not None:
-        env.unwrapped.masspole = masspole
-        env.unwrapped.total_mass = env.unwrapped.masscart + masspole
-    if force_mag is not None:
-        env.unwrapped.force_mag = force_mag
+def update_env_parameters(env, gravity=None, min_position=None, max_position=None, max_speed=None):
     if gravity is not None:
         env.unwrapped.gravity = gravity
+    if min_position is not None:
+        env.unwrapped.min_position = min_position
+    if max_position is not None:
+        env.unwrapped.max_position = max_position
+    if max_speed is not None:
+        env.unwrapped.max_speed = max_speed
 
 def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
     rewards_per_episode = np.array([])
@@ -103,8 +99,8 @@ def train_agent(env, agent: rl_methods.Agent, curriculum, evaluation, total_eval
     return agent, aar, ses, stability
 
 def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False):
-    training_env = gym.make('CartPole-v1', render_mode='rgb_array')
-    evaluation_env = gym.make('CartPole-v1', render_mode='human' if use_render else 'rgb_array')
+    training_env = gym.make('MountainCar-v0', render_mode='rgb_array')
+    evaluation_env = gym.make('MountainCar-v0', render_mode='human' if use_render else 'rgb_array')
 
     total_episodes = agent.hyperparameters['total_episodes']
     evaluation_interval = agent.hyperparameters['evaluation_interval']
@@ -116,7 +112,7 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation} (Epsilon={round(agent.epsilon, 5)}):")
-            print(f"\tTraining Pole Length: {round(training_env.unwrapped.length, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            print(f"\tTraining Gravity: {round(training_env.unwrapped.gravity, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()

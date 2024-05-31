@@ -2,15 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as transforms
+from torch.cuda.amp import autocast, GradScaler
+from torch.profiler import profile, ProfilerActivity
 import pathlib
 import random
 import numpy as np
-from torch.cuda.amp import autocast, GradScaler
-from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
-import environments.atari_games.boxing.environment as boxing_env
-import environments.atari_games.boxing.rl_methods as boxing_rl
+import environments.mountain_car.environment as mountain_car_env
+import environments.mountain_car.rl_methods as mountain_car_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
@@ -38,39 +37,19 @@ def add_gradient_logging(model, threshold=1e-6):
             parameter.register_hook(hook_function)
 
 class DQNNetwork(nn.Module):
-    def __init__(self, action_size, hidden_size = 64):
+    def __init__(self, state_size, action_size, hidden_size=24):
         super(DQNNetwork, self).__init__()
-        self.conv1 = nn.Conv2d(1, 24, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(24, 32, kernel_size=3, stride=1)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=2, stride=1)
-
-        def conv2d_output_size(input_size, kernel_size, stride, padding=0):
-            output_size = (input_size - kernel_size + 2 * padding) // stride + 1
-            return output_size
-
-        h, w = 42, 42
-        h = conv2d_output_size(h, kernel_size=5, stride=2)
-        w = conv2d_output_size(w, kernel_size=5, stride=2)
-        h = conv2d_output_size(h, kernel_size=3, stride=1)
-        w = conv2d_output_size(w, kernel_size=3, stride=1)
-        h = conv2d_output_size(h, kernel_size=2, stride=1)
-        w = conv2d_output_size(w, kernel_size=2, stride=1)
-        
-        linear_input_size = h * w * 32
-
-        self.fc1 = nn.Linear(linear_input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, action_size)
+        self.fc1 = nn.Linear(state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, action_size)
     
     def forward(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
         return x
 
-class DQNAgent(boxing_rl.Agent):
+class DQNAgent(mountain_car_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = device
@@ -79,21 +58,21 @@ class DQNAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 5,
-            "alpha": 0.002,
+            "total_episodes": 10000,
+            "alpha": 0.01,
             "gamma": 0.99,
-            "replay_buffer_size": 1000000,
-            "batch_size": 2048,
+            "replay_buffer_size": 50000,
+            "batch_size": 128,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
-            "print_interval": 1,
-            "evaluation_interval": 1,
-            "update_interval": 10000
+            "print_interval": 10,
+            "evaluation_interval": 10,
+            "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        self.current_model = DQNNetwork(boxing_env.env.action_space.n).to(self.device)
-        self.target_model = DQNNetwork(boxing_env.env.action_space.n).to(self.device)
+        self.current_model = DQNNetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)
+        self.target_model = DQNNetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)
         if use_pretrained:
             self.deserialize_agent()
         else:
@@ -102,46 +81,36 @@ class DQNAgent(boxing_rl.Agent):
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
         self.epsilon = self.hyperparameters['initial_epsilon']
         self.steps_count = 0
-        self.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((42, 42)),
-            transforms.ToTensor(),
-        ])
-
-    def preprocess_single(self, state):
-        return self.transform(state).to(self.device)
     
-    def preprocess_batch(self, states):
-        return torch.stack([self.transform(state) for state in states]).to(self.device)
-
     def act(self, state, greedily: bool = False):
         is_exploratory = False
 
         if greedily:
             with torch.no_grad():
-                state_tensor = self.preprocess_single(state).unsqueeze(0)
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
             epsilon_decay = self.hyperparameters['epsilon_decay']
             minimum_epsilon = self.hyperparameters['minimum_epsilon']
 
+            is_exploratory = False
             if np.random.random() < self.epsilon:
                 is_exploratory = True
-                action = boxing_env.env.action_space.sample()
+                action = mountain_car_env.env.action_space.sample()
             else:
+                is_exploratory = False
                 with torch.no_grad():
-                    state_tensor = self.preprocess_single(state).unsqueeze(0)
+                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
 
             self.epsilon *= epsilon_decay
             self.epsilon = max(minimum_epsilon, self.epsilon)
         
-        return action, dict(is_exploratory=is_exploratory, log_prob=None)
+        return action, is_exploratory
 
-    def train(self, prev_state, action, reward, next_state, done, log_prob):
+    def train(self, prev_state, action, reward, next_state, done):
         with profile(**profiler_settings) as prof:
             self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
@@ -150,8 +119,8 @@ class DQNAgent(boxing_rl.Agent):
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
 
-            state_batch = self.preprocess_batch(states)
-            next_state_batch = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
+            state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
+            next_state_batch = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
 
             action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
             reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
@@ -167,7 +136,7 @@ class DQNAgent(boxing_rl.Agent):
             next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
             expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
-            
+
             total_loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
 
             self.optimizer.zero_grad()
@@ -179,7 +148,7 @@ class DQNAgent(boxing_rl.Agent):
             else:
                 total_loss.backward()
                 self.optimizer.step()
-
+            
             prof.step()
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:

@@ -71,8 +71,8 @@ class DQNAgent(cart_pole_rl.Agent):
             "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        self.current_model = DQNNetwork(cart_pole_env.state_size, cart_pole_env.action_size).to(self.device)
-        self.target_model = DQNNetwork(cart_pole_env.state_size, cart_pole_env.action_size).to(self.device)
+        self.current_model = DQNNetwork(cart_pole_env.env.observation_space.shape[0], cart_pole_env.env.action_space.n).to(self.device)
+        self.target_model = DQNNetwork(cart_pole_env.env.observation_space.shape[0], cart_pole_env.env.action_space.n).to(self.device)
         if use_pretrained:
             self.deserialize_agent()
         else:

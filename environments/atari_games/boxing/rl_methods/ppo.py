@@ -49,7 +49,7 @@ class PPONetwork(nn.Module):
             output_size = (input_size - kernel_size + 2 * padding) // stride + 1
             return output_size
 
-        h, w = 84, 84
+        h, w = 42, 42
         h = conv2d_output_size(h, kernel_size=8, stride=4)
         w = conv2d_output_size(w, kernel_size=8, stride=4)
         h = conv2d_output_size(h, kernel_size=4, stride=2)
@@ -104,8 +104,7 @@ class PPOAgent(boxing_rl.Agent):
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((110, 84)),
-            transforms.CenterCrop((84, 84)),
+            transforms.Resize((42, 42)),
             transforms.ToTensor(),
         ])
         self.steps_count = 0

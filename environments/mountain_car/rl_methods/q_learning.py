@@ -2,8 +2,8 @@ import numpy as np
 import torch
 from torch.profiler import profile, ProfilerActivity
 import pathlib
-import environments.cart_pole.environment as cart_pole_env
-import environments.cart_pole.rl_methods as cart_pole_rl
+import environments.mountain_car.environment as mountain_car_env
+import environments.mountain_car.rl_methods as mountain_car_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
@@ -20,10 +20,8 @@ profiler_settings = {
 
 amount_of_bins = 20
 state_bins = [
-    np.linspace(-4.8, 4.8, amount_of_bins),     # Position
-    np.linspace(-4, 4, amount_of_bins),         # Velocity
-    np.linspace(-0.418, 0.418, amount_of_bins), # Angle
-    np.linspace(-4, 4, amount_of_bins)          # Angular velocity
+    np.linspace(-1.2, 0.6, amount_of_bins),  # Position from -1.2 to 0.6
+    np.linspace(-0.07, 0.07, amount_of_bins) # Velocity from -0.07 to 0.07
 ]
 
 def get_discrete_state(state):
@@ -32,7 +30,7 @@ def get_discrete_state(state):
         index.append(np.digitize(val, state_bins[i]) - 1)
     return tuple(index)
 
-class QLearningAgent(cart_pole_rl.Agent):
+class QLearningAgent(mountain_car_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = device
@@ -64,7 +62,7 @@ class QLearningAgent(cart_pole_rl.Agent):
         else:
             if np.random.random() < self.epsilon:
                 is_exploratory = True
-                action = cart_pole_env.env.action_space.sample()
+                action = mountain_car_env.env.action_space.sample()
             else:
                 action = torch.argmax(self.q_table[state_tensor]).item()
             self.epsilon *= self.hyperparameters['epsilon_decay']
@@ -97,7 +95,7 @@ class QLearningAgent(cart_pole_rl.Agent):
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)
-        actions = (cart_pole_env.env.action_space.n,)
+        actions = (mountain_car_env.env.action_space.n,)
         self.q_table = torch.zeros(states + actions, dtype=torch.float32, device=self.device)
 
     def deserialize_agent(self):
