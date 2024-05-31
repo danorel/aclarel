@@ -6,6 +6,8 @@ from tqdm import tqdm
 import environments.cart_pole.metrics as metrics
 import environments.cart_pole.rl_methods as rl_methods
 
+from env_variables import *
+
 env = gym.make('CartPole-v1', render_mode='rgb_array')
 optimal_mean_reward = 500
 
@@ -117,6 +119,7 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation} (Epsilon={round(agent.epsilon, 5)}):")
             print(f"\tTraining Pole Length: {round(training_env.unwrapped.length, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()

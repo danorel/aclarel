@@ -2,7 +2,7 @@ import numpy as np
 
 import environments.mountain_car.environment as mountain_car 
 
-def logistic(min_gravity=0.0025, max_gravity=0.025, growth_rate=10):
+def logistic(min_gravity=0.00025, max_gravity=0.0025, growth_rate=10):
     def curriculum(env, evaluation, total_evaluations, **metrics):
         evaluation = max(evaluation, 1) # avoid division by zero
         progress = (evaluation / total_evaluations) * growth_rate

@@ -1,6 +1,6 @@
 import environments.mountain_car.environment as mountain_car 
 
-def teacher_student_curriculum(min_gravity=0.0025, max_gravity=0.025, min_reward = -200, max_reward = -110):
+def teacher_student_curriculum(min_gravity=0.00025, max_gravity=0.0025, min_reward = -200, max_reward = -110):
     def curriculum(env, evaluation, total_evaluations, **metrics):
         current_gravity = env.unwrapped.gravity
 

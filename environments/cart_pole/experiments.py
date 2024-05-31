@@ -25,11 +25,11 @@ def get_curriculum(agent: Agent, min_length=0.25, max_length=0.5):
         'transfer-learning': transfer_learning.transfer_learning_curriculum(min_length, max_length, source_evaluations=total_evaluations // 2, target_evaluations=total_evaluations),
         'root-p': pre_defined.root_p(min_length, max_length, exponent=2),
         'one-pass': pre_defined.one_pass(min_length, max_length, total_evaluations),
-        'hard': self_paced.hard(min_length, max_length, milestones=[0.3, 0.35, 0.4]),
+        'hard': self_paced.hard(min_length, max_length, milestones=[0.25, 0.5, 0.75]),
         'linear': self_paced.linear(min_length, max_length),
         'logarithmic': self_paced.logarithmic(min_length, max_length),
         'logistic': self_paced.logistic(min_length, max_length),
-        'mixture': self_paced.mixture(min_length, max_length, switch_length=0.33),
+        'mixture': self_paced.mixture(min_length, max_length, switch=0.5),
         'polynomial': self_paced.polynomial(min_length, max_length),
         'anti-curriculum': anti_curriculum.anti_curriculum_learning(min_length, max_length, total_evaluations)
     }

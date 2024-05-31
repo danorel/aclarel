@@ -25,9 +25,7 @@ state_bins = [
 ]
 
 def get_discrete_state(state):
-    index = []
-    for i, val in enumerate(state):
-        index.append(np.digitize(val, state_bins[i]) - 1)
+    index = [np.digitize(val, bins) - 1 for val, bins in zip(state, state_bins)]
     return tuple(index)
 
 class QLearningAgent(mountain_car_rl.Agent):
@@ -36,10 +34,10 @@ class QLearningAgent(mountain_car_rl.Agent):
         self.device = device
         print(f"Device: {self.device}")
         self.hyperparameters = {
-            "total_episodes": 50000,
+            "total_episodes": 10000,
             "alpha": 0.1,
             "gamma": 0.99,
-            "initial_epsilon": 0.1,
+            "initial_epsilon": 0.3,
             "minimum_epsilon": 0.005,
             "epsilon_decay": 0.99999,
             "print_interval": 250,
@@ -53,17 +51,15 @@ class QLearningAgent(mountain_car_rl.Agent):
         self.epsilon = self.hyperparameters['initial_epsilon']
 
     def act(self, state, greedily: bool = False):
-        state = get_discrete_state(state)
         is_exploratory = False
-        state_tensor = torch.tensor(state, device=self.device)
         if greedily:
-            action = torch.argmax(self.q_table[state_tensor]).item()
+            action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
         else:
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = mountain_car_env.env.action_space.sample()
             else:
-                action = torch.argmax(self.q_table[state_tensor]).item()
+                action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
             self.epsilon *= self.hyperparameters['epsilon_decay']
             self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
         return action, is_exploratory

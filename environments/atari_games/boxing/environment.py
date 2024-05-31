@@ -6,6 +6,8 @@ from tqdm import tqdm
 import environments.atari_games.boxing.metrics as metrics
 import environments.atari_games.boxing.rl_methods as rl_methods
 
+from env_variables import *
+
 num_envs = 4
 env = gym.make('ALE/Boxing-v5', render_mode='rgb_array', frameskip=4)
 optimal_mean_reward = 100

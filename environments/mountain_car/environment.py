@@ -6,6 +6,8 @@ from tqdm import tqdm
 import environments.mountain_car.metrics as metrics
 import environments.mountain_car.rl_methods as rl_methods
 
+from env_variables import *
+
 env = gym.make('MountainCar-v0', render_mode='rgb_array')
 optimal_mean_reward = -110
 
@@ -112,7 +114,8 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation} (Epsilon={round(agent.epsilon, 5)}):")
-            print(f"\tTraining Gravity: {round(training_env.unwrapped.gravity, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            print(f"\tTraining Gravity: {round(training_env.unwrapped.gravity, 6)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 
     agent.plot_measurements()

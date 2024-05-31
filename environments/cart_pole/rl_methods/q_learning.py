@@ -27,9 +27,7 @@ state_bins = [
 ]
 
 def get_discrete_state(state):
-    index = []
-    for i, val in enumerate(state):
-        index.append(np.digitize(val, state_bins[i]) - 1)
+    index = [np.digitize(val, bins) - 1 for val, bins in zip(state, state_bins)]
     return tuple(index)
 
 class QLearningAgent(cart_pole_rl.Agent):
@@ -55,17 +53,15 @@ class QLearningAgent(cart_pole_rl.Agent):
         self.epsilon = self.hyperparameters['initial_epsilon']
 
     def act(self, state, greedily: bool = False):
-        state = get_discrete_state(state)
         is_exploratory = False
-        state_tensor = torch.tensor(state, device=self.device)
         if greedily:
-            action = torch.argmax(self.q_table[state_tensor]).item()
+            action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
         else:
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = cart_pole_env.env.action_space.sample()
             else:
-                action = torch.argmax(self.q_table[state_tensor]).item()
+                action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
             self.epsilon *= self.hyperparameters['epsilon_decay']
             self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
         return action, is_exploratory

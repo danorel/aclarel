@@ -2,7 +2,7 @@ import numpy as np
 
 import environments.mountain_car.environment as mountain_car 
 
-def anti_curriculum_learning(min_gravity=0.0025, max_gravity=0.025, total_evaluations=100):
+def anti_curriculum_learning(min_gravity=0.00025, max_gravity=0.0025, total_evaluations=100):
     gravities = np.linspace(max_gravity, min_gravity, total_evaluations)
 
     def curriculum(env, evaluation, total_evaluations, **metrics):

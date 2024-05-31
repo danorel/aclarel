@@ -2,7 +2,7 @@ import numpy as np
 
 import environments.mountain_car.environment as mountain_car 
 
-def logarithmic(min_gravity=0.0025, max_gravity=0.025):
+def logarithmic(min_gravity=0.00025, max_gravity=0.0025):
     def curriculum(env, evaluation, total_evaluations, **metrics):
         scale = np.log(total_evaluations)
         new_gravity = min_gravity + (max_gravity - min_gravity) * (np.log(evaluation + 1) / scale)

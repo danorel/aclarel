@@ -2,7 +2,7 @@ import numpy as np
 
 import environments.mountain_car.environment as mountain_car 
 
-def transfer_learning_curriculum(source_gravity=0.0025, target_gravity=0.025, source_evaluations=50, target_evaluations=100):
+def transfer_learning_curriculum(source_gravity=0.00025, target_gravity=0.0025, source_evaluations=50, target_evaluations=100):
     source_gravities = np.linspace(source_gravity, target_gravity, source_evaluations)
     target_gravities = [target_gravity] * (target_evaluations - source_evaluations)
 
