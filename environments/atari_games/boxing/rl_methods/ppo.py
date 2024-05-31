@@ -13,15 +13,18 @@ import environments.atari_games.boxing.rl_methods as boxing_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done', 'log_prob'))
 
 profiler_settings = {
     "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3),
-    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./logs'),
+    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./runs'),
     "record_shapes": True,
     "profile_memory": True,
     "with_stack": True,
-    "activities": [ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    "with_flops": True,
+    "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
 }
 
 def add_gradient_logging(model, threshold=1e-6):
@@ -72,9 +75,9 @@ class PPONetwork(nn.Module):
 class PPOAgent(boxing_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         print(f"Device: {self.device}")
-        self.autocast = True
+        self.autocast = device == 'cuda'
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
@@ -139,14 +142,12 @@ class PPOAgent(boxing_rl.Agent):
     def compute_loss(self, action_probs, values, actions, rewards, next_states, dones, log_probs):
         values = values.squeeze(-1)
         
-        rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-        dones = torch.tensor(dones, dtype=torch.bool, device=self.device)
-        old_log_probs = torch.tensor(log_probs, dtype=torch.float32, device=self.device)
-
         returns, advantages = self.compute_gae(next_states, rewards, dones, values)
 
         probs_distribution = torch.distributions.Categorical(action_probs)
-        new_log_probs = probs_distribution.log_prob(torch.tensor(actions, device=self.device)).squeeze()
+
+        old_log_probs = log_probs.clone()
+        new_log_probs = probs_distribution.log_prob(actions).squeeze()
 
         ratios = torch.exp(new_log_probs - old_log_probs)
 

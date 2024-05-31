@@ -19,7 +19,7 @@ def update_env_parameters(env, length=None, masscart=None, masspole=None, force_
         env.unwrapped.masscart = masscart
         env.unwrapped.total_mass = masscart + env.unwrapped.masspole
     if masspole is not None:
-        env.unwrapped.masspole = masspole  # Change pole mass
+        env.unwrapped.masspole = masspole
         env.unwrapped.total_mass = env.unwrapped.masscart + masspole
     if force_mag is not None:
         env.unwrapped.force_mag = force_mag

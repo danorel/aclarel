@@ -47,7 +47,7 @@ class Agent(abc.ABC):
         pass
 
     def track_measurements(self, evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate):
-        measurement = {
+        measurement = pd.DataFrame([{
             **self.metadata,
             'evaluation': evaluation,
             'aar': aar,
@@ -57,8 +57,9 @@ class Agent(abc.ABC):
             'std_reward': std_reward,
             'total_reward': total_reward,
             'success_rate': success_rate
-        }
-        self.measurements = pd.concat([self.measurements, pd.DataFrame([measurement])], ignore_index=True)
+        }])
+        if not measurement.isna().any().any():
+            self.measurements = pd.concat([self.measurements, measurement], ignore_index=True)
 
     def plot_measurements(self):
         for metric in self.measurements.columns.difference([*self.metadata.keys(), 'evaluation']):

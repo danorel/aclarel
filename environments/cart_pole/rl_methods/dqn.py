@@ -13,15 +13,17 @@ import environments.cart_pole.rl_methods as cart_pole_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
 
 profiler_settings = {
     "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3),
-    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./logs'),
+    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./runs'),
     "record_shapes": True,
     "profile_memory": True,
     "with_stack": True,
-    "activities": [ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
 }
 
 def add_gradient_logging(model, threshold=1e-6):
@@ -50,9 +52,9 @@ class DQNNetwork(nn.Module):
 class DQNAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         print(f"Device: {self.device}")
-        self.autocast = True
+        self.autocast = device == 'cuda'
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {

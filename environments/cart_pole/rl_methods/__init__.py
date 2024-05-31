@@ -19,7 +19,7 @@ class Agent(abc.ABC):
         }
         self.hyperparameters: dict = None
         self.hyperparameter_path: str = None
-        self.measurements = pd.DataFrame(columns=['agent_name', 'evaluation', 'curriculum_name', 'aar', 'ses', 'learning_stability', 'mean_reward', 'std_reward', 'total_reward', 'success_rate'])
+        self.measurements = pd.DataFrame(columns=['agent_name', 'curriculum_name', 'evaluation', 'aar', 'ses', 'learning_stability', 'mean_reward', 'std_reward', 'total_reward', 'success_rate'])
         # Path which should serve for agents artifacts
         self.model_dir = AGENT_DIR / curriculum_name / agent_name
         self.model_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +47,7 @@ class Agent(abc.ABC):
         pass
 
     def track_measurements(self, evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate):
-        measurement = {
+        measurement = pd.DataFrame([{
             **self.metadata,
             'evaluation': evaluation,
             'aar': aar,
@@ -57,8 +57,9 @@ class Agent(abc.ABC):
             'std_reward': std_reward,
             'total_reward': total_reward,
             'success_rate': success_rate
-        }
-        self.measurements = pd.concat([self.measurements, pd.DataFrame([measurement])], ignore_index=True)
+        }])
+        if not measurement.isna().any().any():
+            self.measurements = pd.concat([self.measurements, measurement], ignore_index=True)
 
     def plot_measurements(self):
         for metric in self.measurements.columns.difference([*self.metadata.keys(), 'evaluation']):
