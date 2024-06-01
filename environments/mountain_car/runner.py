@@ -9,7 +9,7 @@ def main():
         description='Runs an agent via Curriculum Learning',
         epilog='Enjoy and experiment!'
     )
-    parser.add_argument('-a', '--agent_name', choices=['dqn', 'q-learning'], default='dqn', help='Choose the agent type: dqn or q-learning')
+    parser.add_argument('-a', '--agent_name', choices=['dqn', 'q-learning', 'ppo'], default='dqn', help='Choose the agent type: dqn or q-learning')
     parser.add_argument('-c', '--curriculum_name', choices=['baseline', 'one-pass', 'root-p', 'hard', 'linear', 'logarithmic', 'logistic', 'mixture', 'polynomial', 'anti-curriculum', 'transfer-learning', 'teacher-learning'], default='baseline', help='Select the curriculum method')
     parser.add_argument('-p', '--use_pretrained', action='store_true', help='Flag whether use a pre-trained agent or not')
     parser.add_argument('-r', '--use_render', action='store_true', help='Flag whether render environment or not')

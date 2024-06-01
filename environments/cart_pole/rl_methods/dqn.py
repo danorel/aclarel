@@ -94,9 +94,6 @@ class DQNAgent(cart_pole_rl.Agent):
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
-            epsilon_decay = self.hyperparameters['epsilon_decay']
-            minimum_epsilon = self.hyperparameters['minimum_epsilon']
-
             is_exploratory = False
             if np.random.random() < self.epsilon:
                 is_exploratory = True
@@ -108,9 +105,6 @@ class DQNAgent(cart_pole_rl.Agent):
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
 
-            self.epsilon *= epsilon_decay
-            self.epsilon = max(minimum_epsilon, self.epsilon)
-        
         return action, is_exploratory
 
     def train(self, prev_state, action, reward, next_state, done):
@@ -123,6 +117,9 @@ class DQNAgent(cart_pole_rl.Agent):
             
             if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
+            else:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
@@ -137,11 +134,8 @@ class DQNAgent(cart_pole_rl.Agent):
             next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
 
             if non_final_mask.any():
-                next_values = self.target_model(next_state_batch).max(1)[0].detach()
-                next_state_values[non_final_mask] = next_values
-
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-            next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
+                with torch.no_grad():
+                    next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
             expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
 

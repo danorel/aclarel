@@ -176,3 +176,5 @@ poetry.toml
 # Custom artifacts
 agents
 measurements
+runs
+logs

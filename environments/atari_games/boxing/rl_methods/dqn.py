@@ -80,7 +80,7 @@ class DQNAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 10,
+            "total_episodes": 50,
             "alpha": 0.002,
             "gamma": 0.99,
             "replay_buffer_size": 1000000,
@@ -127,9 +127,6 @@ class DQNAgent(boxing_rl.Agent):
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
-            epsilon_decay = self.hyperparameters['epsilon_decay']
-            minimum_epsilon = self.hyperparameters['minimum_epsilon']
-
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = boxing_env.env.action_space.sample()
@@ -139,9 +136,6 @@ class DQNAgent(boxing_rl.Agent):
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
 
-            self.epsilon *= epsilon_decay
-            self.epsilon = max(minimum_epsilon, self.epsilon)
-        
         return action, dict(is_exploratory=is_exploratory, log_prob=None)
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
@@ -154,25 +148,24 @@ class DQNAgent(boxing_rl.Agent):
             
             if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
+            else:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
 
             state_batch = self.preprocess_batch(states)
             next_state_batch = self.preprocess_batch([s for s, done in zip(next_states, dones) if not done])
-
             action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
             reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
             non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
             state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
 
+            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
             if non_final_mask.any():
-                next_values = self.target_model(next_state_batch).max(1)[0].detach()
-                next_state_values[non_final_mask] = next_values
-
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-            next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
+                with torch.no_grad():
+                    next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
             expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
             

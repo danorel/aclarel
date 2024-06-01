@@ -7,11 +7,13 @@ import environments.mountain_car.cl_methods.transfer_learning as transfer_learni
 from environments.mountain_car.rl_methods import Agent
 from environments.mountain_car.rl_methods.q_learning import QLearningAgent
 from environments.mountain_car.rl_methods.dqn import DQNAgent
+from environments.mountain_car.rl_methods.ppo import PPOAgent
 
 def get_agent(agent_name, curriculum_name, pretrained: bool = False):
     """Factory function to create agent based on the agent_name."""
     agents = {
         'dqn': DQNAgent,
+        'ppo': PPOAgent,
         'q-learning': QLearningAgent
     }
     return agents.get(agent_name, DQNAgent)(curriculum_name, pretrained)
@@ -21,7 +23,7 @@ def get_curriculum(agent: Agent, min_gravity=0.00025, max_gravity=0.0025):
     total_evaluations = agent.hyperparameters['total_episodes'] // agent.hyperparameters['evaluation_interval']
     curricula = {
         'baseline': None,
-        'teacher-learning': teacher_learning.teacher_student_curriculum(min_gravity, max_gravity, min_reward=-200, max_reward=-110),
+        'teacher-learning': teacher_learning.teacher_student_curriculum(min_gravity, max_gravity, min_reward=-1000, max_reward=-110),
         'transfer-learning': transfer_learning.transfer_learning_curriculum(min_gravity, max_gravity, source_evaluations=total_evaluations // 2, target_evaluations=total_evaluations),
         'root-p': pre_defined.root_p(min_gravity, max_gravity, exponent=2),
         'one-pass': pre_defined.one_pass(min_gravity, max_gravity, total_evaluations),

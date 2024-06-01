@@ -34,15 +34,16 @@ class QLearningAgent(mountain_car_rl.Agent):
         self.device = device
         print(f"Device: {self.device}")
         self.hyperparameters = {
-            "total_episodes": 10000,
+            "total_episodes": 2000,
             "alpha": 0.1,
-            "gamma": 0.99,
-            "initial_epsilon": 0.3,
-            "minimum_epsilon": 0.005,
+            "gamma": 0.95,
+            "initial_epsilon": 1.0,
+            "minimum_epsilon": 0.01,
             "epsilon_decay": 0.99999,
-            "print_interval": 250,
-            "log_interval": 250,
-            "evaluation_interval": 10,
+            "print_interval": 10,
+            "evaluation_interval": 20,
+            "train_interval": 10,
+            "log_interval": 500,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         if use_pretrained:
@@ -61,11 +62,9 @@ class QLearningAgent(mountain_car_rl.Agent):
                 action = mountain_car_env.env.action_space.sample()
             else:
                 action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
-            self.epsilon *= self.hyperparameters['epsilon_decay']
-            self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
-        return action, is_exploratory
+        return action, dict(log_prob=None, is_exploratory=is_exploratory)
     
-    def train(self, prev_state, action, reward, next_state, done):
+    def train(self, prev_state, action, reward, next_state, done, log_prob):
         with profile(**profiler_settings) as prof:
             self.steps_count += 1
 
@@ -81,7 +80,9 @@ class QLearningAgent(mountain_car_rl.Agent):
             td_error = new_q_value - current_q_value
             self.q_table[prev_state, action] = new_q_value
 
-            td_error_sum = td_error.sum().item()
+            if self.steps_count % self.hyperparameters['train_interval'] == 0:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
                 td_error_mean = td_error.mean().item()

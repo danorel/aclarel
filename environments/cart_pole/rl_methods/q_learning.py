@@ -45,6 +45,7 @@ class QLearningAgent(cart_pole_rl.Agent):
             "print_interval": 250,
             'log_interval': 250,
             "evaluation_interval": 10,
+            "train_interval": 10,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         if use_pretrained:
@@ -63,8 +64,6 @@ class QLearningAgent(cart_pole_rl.Agent):
                 action = cart_pole_env.env.action_space.sample()
             else:
                 action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
-            self.epsilon *= self.hyperparameters['epsilon_decay']
-            self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
         return action, is_exploratory
     
     def train(self, prev_state, action, reward, next_state, done):
@@ -82,6 +81,10 @@ class QLearningAgent(cart_pole_rl.Agent):
             
             td_error = new_q_value - current_q_value
             self.q_table[prev_state, action] = new_q_value
+
+            if self.steps_count % self.hyperparameters['train_interval'] == 0:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
                 td_error_mean = td_error.mean().item()

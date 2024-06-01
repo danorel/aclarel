@@ -14,7 +14,7 @@ optimal_mean_reward = 100
 
 def update_env_parameters(env, frame_skip=None):
     if frame_skip is not None:
-        env.unwrapped._frameskip = frame_skip
+        env.unwrapped._frameskip = int(frame_skip) 
 
 def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
     rewards_per_episode = np.array([])
@@ -109,7 +109,8 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation}:")
-            print(f"\tTraining Frameskip: {round(training_env.unwrapped._frameskip, 3)}\n \tTraining Stability: {round(learning_stability, 3)}\n \tAAR: {round(aar, 3)}\n \tSES: {round(ses, 3)}\n \tMean Reward: {round(mean_reward, 3)}\n \tStd Reward: {round(std_reward, 3)}\n")
+            print(f"\tTraining:\n \t\Frameskip: {training_env.unwrapped._frameskip}\n \t\tStability: {round(learning_stability, 3)}")
+            print(f"\tEvalution:\n \t\tAAR: {round(aar, 3)}\n \t\tSES: {round(ses, 3)}\n \t\tMean Reward: {round(mean_reward, 3)}\n \t\tStd Reward: {round(std_reward, 3)}")
             agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)
 

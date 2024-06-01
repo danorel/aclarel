@@ -2,15 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as transforms
 import pathlib
 import random
 from torch.cuda.amp import autocast, GradScaler
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
-import environments.atari_games.boxing.environment as boxing_env
-import environments.atari_games.boxing.rl_methods as boxing_rl
+import environments.mountain_car.environment as mountain_car_env
+import environments.mountain_car.rl_methods as mountain_car_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
@@ -39,41 +38,24 @@ def add_gradient_logging(model, threshold=1e-6):
             parameter.register_hook(hook_function)
 
 class PPONetwork(nn.Module):
-    def __init__(self, action_size):
+    def __init__(self, state_size, action_size, hidden_size=32):
         super(PPONetwork, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1)
+        self.fc1 = nn.Linear(state_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size * 2)
+        self.fc3 = nn.Linear(hidden_size * 2, hidden_size)
+        self.actor_fc = nn.Linear(hidden_size, action_size)
+        self.critic_fc = nn.Linear(hidden_size, 1)
 
-        def conv2d_output_size(input_size, kernel_size, stride, padding=0):
-            output_size = (input_size - kernel_size + 2 * padding) // stride + 1
-            return output_size
-
-        h, w = 42, 42
-        h = conv2d_output_size(h, kernel_size=8, stride=4)
-        w = conv2d_output_size(w, kernel_size=8, stride=4)
-        h = conv2d_output_size(h, kernel_size=4, stride=2)
-        w = conv2d_output_size(w, kernel_size=4, stride=2)
-        h = conv2d_output_size(h, kernel_size=3, stride=1)
-        w = conv2d_output_size(w, kernel_size=3, stride=1)
-
-        self.linear_input_size = h * w * 32
-        self.actor_fc = nn.Linear(self.linear_input_size, action_size)
-        self.critic_fc = nn.Linear(self.linear_input_size, 1)
-    
     def forward(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         action_probs = F.softmax(self.actor_fc(x), dim=-1)
         values = self.critic_fc(x).squeeze(-1)
-
         return action_probs, values
 
-class PPOAgent(boxing_rl.Agent):
+class PPOAgent(mountain_car_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
         self.device = device
@@ -82,40 +64,33 @@ class PPOAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 50,
-            "alpha": 0.002,
-            "gamma": 0.99,
+            "total_episodes": 500,
+            "alpha": 0.001,
+            "gamma": 0.98,
+            "replay_buffer_size": 2000,
+            "batch_size": 128,
             "clip_epsilon": 0.2,
             "gae_lambda": 0.95,
-            "replay_buffer_size": 1000000,
-            "batch_size": 2048,
-            "print_interval": 1,
-            'train_interval': 50,
-            'log_interval': 100,
-            "evaluation_interval": 1,
+            "print_interval": 5,
+            "evaluation_interval": 5,
+            "train_interval": 5,
+            'log_interval': 10,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
-        self.model = PPONetwork(boxing_env.env.action_space.n).to(self.device)
+        self.model = PPONetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)
         if use_pretrained:
             self.deserialize_agent()
         else:
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.hyperparameters['alpha'])
-        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
-        self.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((42, 42)),
-            transforms.ToTensor(),
-        ])
+        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.995)
 
     def preprocess_single(self, state):
-        state = self.transform(state)
-        return state.to(self.device)
+        return torch.tensor(state, dtype=torch.float32).to(self.device)
     
     def preprocess_batch(self, states):
-        state_tensors = torch.stack([self.transform(state) for state in states])
+        state_tensors = torch.stack([torch.tensor(state, dtype=torch.float32).to(self.device) for state in states])
         return state_tensors.to(self.device)
     
     def act(self, state, greedily: bool = False):
@@ -185,6 +160,7 @@ class PPOAgent(boxing_rl.Agent):
 
             action_probs, state_values = self.model(state_batch)
             _, next_state_values = self.model(next_state_batch)
+            
             next_state_values = next_state_values.detach()
 
             total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
@@ -193,14 +169,16 @@ class PPOAgent(boxing_rl.Agent):
             if self.autocast:
                 with autocast():
                     self.scaler.scale(total_loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
             else:
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 self.optimizer.step()
 
-            self.lr_scheduler.step()
+            self.lr_scheduler.step() 
 
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
                 self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)

@@ -38,7 +38,7 @@ def add_gradient_logging(model, threshold=1e-6):
             parameter.register_hook(hook_function)
 
 class DQNNetwork(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size=24):
+    def __init__(self, state_size, action_size, hidden_size=32):
         super(DQNNetwork, self).__init__()
         self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -59,19 +59,19 @@ class DQNAgent(mountain_car_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 10000,
-            "alpha": 0.01,
-            "gamma": 0.99,
-            "replay_buffer_size": 50000,
+            "total_episodes": 2000,
+            "alpha": 0.001,
+            "gamma": 0.98,
+            "replay_buffer_size": 5000,
             "batch_size": 128,
-            "initial_epsilon": 1.0,
+            "initial_epsilon": 0.5,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.99999,
+            "update_interval": 1000,
             "print_interval": 10,
-            "evaluation_interval": 10,
-            'train_interval': 10,
-            "log_interval": 250,
-            "update_interval": 500
+            "evaluation_interval": 20,
+            "train_interval": 10,
+            "log_interval": 500
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)
@@ -94,9 +94,6 @@ class DQNAgent(mountain_car_rl.Agent):
                 action_values = self.current_model(state_tensor)
                 action = torch.argmax(action_values).item()
         else:
-            epsilon_decay = self.hyperparameters['epsilon_decay']
-            minimum_epsilon = self.hyperparameters['minimum_epsilon']
-
             is_exploratory = False
             if np.random.random() < self.epsilon:
                 is_exploratory = True
@@ -107,13 +104,10 @@ class DQNAgent(mountain_car_rl.Agent):
                     state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
                     action_values = self.current_model(state_tensor)
                     action = torch.argmax(action_values).item()
+ 
+        return action, dict(log_prob=None, is_exploratory=is_exploratory)
 
-            self.epsilon *= epsilon_decay
-            self.epsilon = max(minimum_epsilon, self.epsilon)
-        
-        return action, is_exploratory
-
-    def train(self, prev_state, action, reward, next_state, done):
+    def train(self, prev_state, action, reward, next_state, done, log_prob):
         with profile(**profiler_settings) as prof:
             self.steps_count += 1
 
@@ -123,6 +117,9 @@ class DQNAgent(mountain_car_rl.Agent):
             
             if self.steps_count % self.hyperparameters['train_interval'] != 0:
                 return
+            else:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
@@ -134,14 +131,11 @@ class DQNAgent(mountain_car_rl.Agent):
             reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
             non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
             state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
 
+            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
             if non_final_mask.any():
-                next_values = self.target_model(next_state_batch).max(1)[0].detach()
-                next_state_values[non_final_mask] = next_values
-
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-            next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
+                with torch.no_grad():
+                    next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
             expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
 
@@ -151,10 +145,13 @@ class DQNAgent(mountain_car_rl.Agent):
             if self.autocast:
                 with autocast():
                     self.scaler.scale(total_loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1.0)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
             else:
                 total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.current_model.parameters(), 1.0)
                 self.optimizer.step()
 
             self.lr_scheduler.step()
@@ -165,7 +162,6 @@ class DQNAgent(mountain_car_rl.Agent):
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
                 self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
                 prof.step()
-
 
     def refresh_agent(self):
         self.target_model.load_state_dict(self.current_model.state_dict())
