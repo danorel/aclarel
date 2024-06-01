@@ -69,8 +69,8 @@ def evaluate_agent(env, agent: rl_methods.Agent, use_render: bool = False):
 
     return mean_reward, std_reward, total_reward, success_rate
 
-def safe_reward_shaping(agent, time_reward, state, next_state):
-    return time_reward + 300 * (agent.hyperparameters['gamma'] * abs(next_state[1]) - abs(state[1]))
+def safe_reward_shaping(time_reward, state, next_state):
+    return time_reward + 1000 * (0.9 * abs(next_state[1]) - abs(state[1]))
 
 def goal_oriented_reward_shaping():
     goal_position = 0.5
@@ -116,7 +116,7 @@ def train_agent(env, agent: rl_methods.Agent, curriculum, evaluation, total_eval
         while not done and not truncated:
             action, props = agent.act(state, greedily=False)
             next_state, reward, done, truncated, _ = env.step(action)
-            reward = safe_reward_shaping(agent, reward, state, next_state)
+            reward = safe_reward_shaping(reward, state, next_state)
             agent.train(state, action, reward, next_state, done, props['log_prob'])
             state = next_state
 

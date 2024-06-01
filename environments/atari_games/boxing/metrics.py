@@ -12,18 +12,18 @@ def ses(actions_taken, terminal_states):
     return safe_actions / exploration_actions if exploration_actions > 0 else 0
 
 def adjustment_factor(env, episode, total_episodes):
-    min_difficulty = 1
-    max_difficulty = 10
+    min_frame_skip = 1
+    max_frame_skip = 10
 
-    episode_factor = min_difficulty + (max_difficulty - min_difficulty) * (episode / total_episodes)
+    episode_factor = min_frame_skip + (max_frame_skip - min_frame_skip) * (episode / total_episodes)
 
-    current_difficulty = 1
+    current_frame_skip = env.unwrapped._frameskip
 
-    if current_difficulty <= max_difficulty:
-        length_adjustment = max_difficulty / current_difficulty
+    if current_frame_skip <= max_frame_skip:
+        frame_skip_adjustment = min_frame_skip / current_frame_skip
     else:
-        length_adjustment = 1
+        frame_skip_adjustment = 1
 
-    adjustment_factor = length_adjustment * episode_factor
+    adjustment_factor = frame_skip_adjustment * episode_factor
     
     return adjustment_factor

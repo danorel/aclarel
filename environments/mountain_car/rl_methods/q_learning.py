@@ -18,7 +18,7 @@ profiler_settings = {
     "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
 }
 
-amount_of_bins = 20
+amount_of_bins = 30
 state_bins = [
     np.linspace(-1.2, 0.6, amount_of_bins),  # Position from -1.2 to 0.6
     np.linspace(-0.07, 0.07, amount_of_bins) # Velocity from -0.07 to 0.07
@@ -34,14 +34,14 @@ class QLearningAgent(mountain_car_rl.Agent):
         self.device = device
         print(f"Device: {self.device}")
         self.hyperparameters = {
-            "total_episodes": 2000,
+            "total_episodes": 3000,
             "alpha": 0.1,
-            "gamma": 0.95,
+            "gamma": 0.99,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.99999,
             "print_interval": 10,
-            "evaluation_interval": 20,
+            "evaluation_interval": 30,
             "train_interval": 10,
             "log_interval": 500,
         }
@@ -55,36 +55,36 @@ class QLearningAgent(mountain_car_rl.Agent):
     def act(self, state, greedily: bool = False):
         is_exploratory = False
         if greedily:
-            action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
+            action = np.argmax(self.q_table[get_discrete_state(state)])
         else:
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = mountain_car_env.env.action_space.sample()
             else:
-                action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
+                action = np.argmax(self.q_table[get_discrete_state(state)])
         return action, dict(log_prob=None, is_exploratory=is_exploratory)
     
     def train(self, prev_state, action, reward, next_state, done, log_prob):
         with profile(**profiler_settings) as prof:
             self.steps_count += 1
 
-            prev_state = torch.tensor([get_discrete_state(prev_state)], device=self.device, dtype=torch.long)
-            next_state = torch.tensor([get_discrete_state(next_state)], device=self.device, dtype=torch.long)
-            action = torch.tensor([action], device=self.device, dtype=torch.long)
+            prev_state_idx = get_discrete_state(prev_state)
+            next_state_idx = get_discrete_state(next_state)
 
-            current_q_value = self.q_table[prev_state, action].squeeze()
-            max_next_q_value = torch.max(self.q_table[next_state]).detach()
+            current_q_value = self.q_table[prev_state_idx, action]
+            max_next_q_value = np.max(self.q_table[next_state_idx])
 
-            new_q_value = current_q_value + self.hyperparameters['alpha'] * (reward + self.hyperparameters['gamma'] * max_next_q_value - current_q_value)
-            
-            td_error = new_q_value - current_q_value
-            self.q_table[prev_state, action] = new_q_value
+            new_q_value = (1 - self.hyperparameters['alpha']) * current_q_value + self.hyperparameters['alpha'] * (
+                reward + self.hyperparameters['gamma'] * max_next_q_value)
+
+            self.q_table[prev_state_idx, action] = new_q_value
 
             if self.steps_count % self.hyperparameters['train_interval'] == 0:
                 self.epsilon *= self.hyperparameters['epsilon_decay']
                 self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
+                td_error = new_q_value - current_q_value
                 td_error_mean = td_error.mean().item()
                 self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
                 td_error_sum = td_error.sum().item()
@@ -94,7 +94,7 @@ class QLearningAgent(mountain_car_rl.Agent):
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)
         actions = (mountain_car_env.env.action_space.n,)
-        self.q_table = torch.zeros(states + actions, dtype=torch.float32, device=self.device)
+        self.q_table = np.zeros(states + actions, dtype=np.float32)
 
     def deserialize_agent(self):
         model_path = self.model_dir / f'{self.hyperparameter_path}.pt'

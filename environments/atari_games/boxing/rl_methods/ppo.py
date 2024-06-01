@@ -87,12 +87,12 @@ class PPOAgent(boxing_rl.Agent):
             "gamma": 0.99,
             "clip_epsilon": 0.2,
             "gae_lambda": 0.95,
-            "replay_buffer_size": 1000000,
-            "batch_size": 2048,
+            "replay_buffer_size": 100000,
+            "batch_size": 256,
             "print_interval": 1,
             'train_interval': 50,
             'log_interval': 100,
-            "evaluation_interval": 1,
+            "evaluation_interval": 5,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.model = PPONetwork(boxing_env.env.action_space.n).to(self.device)

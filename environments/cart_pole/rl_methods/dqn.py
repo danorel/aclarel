@@ -38,7 +38,7 @@ def add_gradient_logging(model, threshold=1e-6):
             parameter.register_hook(hook_function)
 
 class DQNNetwork(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size=24):
+    def __init__(self, state_size, action_size, hidden_size=32):
         super(DQNNetwork, self).__init__()
         self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -59,19 +59,19 @@ class DQNAgent(cart_pole_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 2000,
+            "total_episodes": 5000,
             "alpha": 0.0015,
             "gamma": 0.99,
             "replay_buffer_size": 50000,
             "batch_size": 128,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
-            "epsilon_decay": 0.999,
+            "epsilon_decay": 0.9999,
             "print_interval": 10,
-            "evaluation_interval": 10,
-            'train_interval': 10,
+            "evaluation_interval": 50,
+            'train_interval': 100,
             'log_interval': 250,
-            "update_interval": 1000
+            "update_interval": 500
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(cart_pole_env.env.observation_space.shape[0], cart_pole_env.env.action_space.n).to(self.device)
@@ -82,7 +82,7 @@ class DQNAgent(cart_pole_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
+        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.999)
         self.epsilon = self.hyperparameters['initial_epsilon']
     
     def act(self, state, greedily: bool = False):
@@ -115,24 +115,17 @@ class DQNAgent(cart_pole_rl.Agent):
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
                 return
             
-            if self.steps_count % self.hyperparameters['train_interval'] != 0:
-                return
-            else:
-                self.epsilon *= self.hyperparameters['epsilon_decay']
-                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
-
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
 
             state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
             next_state_batch = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
-
             action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
             reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
             non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
             state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
 
+            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
             if non_final_mask.any():
                 with torch.no_grad():
                     next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
@@ -152,6 +145,10 @@ class DQNAgent(cart_pole_rl.Agent):
                 self.optimizer.step()
             
             self.lr_scheduler.step()
+
+            if self.steps_count % self.hyperparameters['train_interval'] != 0:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:
                 self.target_model.load_state_dict(self.current_model.state_dict())

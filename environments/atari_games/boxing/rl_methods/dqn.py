@@ -80,19 +80,19 @@ class DQNAgent(boxing_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 50,
+            "total_episodes": 100,
             "alpha": 0.002,
             "gamma": 0.99,
-            "replay_buffer_size": 1000000,
-            "batch_size": 2048,
+            "replay_buffer_size": 100000,
+            "batch_size": 256,
             "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.995,
             "print_interval": 1,
-            "evaluation_interval": 1,
+            "evaluation_interval": 5,
             'train_interval': 50,
             'log_interval': 100,
-            "update_interval": 1000
+            "update_interval": 500
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(boxing_env.env.action_space.n).to(self.device)

@@ -109,7 +109,7 @@ def train_evaluate(agent: rl_methods.Agent, curriculum, use_render: bool = False
         mean_reward, std_reward, total_reward, success_rate = evaluate_agent(evaluation_env, agent, use_render)
         if evaluation % print_interval == 0:
             print(f"Evaluation {evaluation}:")
-            print(f"\tTraining:\n \t\Frameskip: {training_env.unwrapped._frameskip}\n \t\tStability: {round(learning_stability, 3)}")
+            print(f"\tTraining:\n \t\tFrameskip: {training_env.unwrapped._frameskip}\n \t\tStability: {round(learning_stability, 3)}")
             print(f"\tEvalution:\n \t\tAAR: {round(aar, 3)}\n \t\tSES: {round(ses, 3)}\n \t\tMean Reward: {round(mean_reward, 3)}\n \t\tStd Reward: {round(std_reward, 3)}")
             agent.serialize_agent()
         agent.track_measurements(evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate)

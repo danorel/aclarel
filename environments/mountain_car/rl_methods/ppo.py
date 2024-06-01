@@ -64,13 +64,13 @@ class PPOAgent(mountain_car_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 500,
+            "total_episodes": 250,
             "alpha": 0.001,
-            "gamma": 0.98,
+            "gamma": 0.99,
             "replay_buffer_size": 2000,
             "batch_size": 128,
             "clip_epsilon": 0.2,
-            "gae_lambda": 0.95,
+            "gae_lambda": 0.99,
             "print_interval": 5,
             "evaluation_interval": 5,
             "train_interval": 5,

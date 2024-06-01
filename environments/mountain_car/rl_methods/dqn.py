@@ -60,17 +60,17 @@ class DQNAgent(mountain_car_rl.Agent):
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
             "total_episodes": 2000,
-            "alpha": 0.001,
-            "gamma": 0.98,
-            "replay_buffer_size": 5000,
+            "alpha": 0.0001,
+            "gamma": 0.99,
+            "replay_buffer_size": 10000,
             "batch_size": 128,
-            "initial_epsilon": 0.5,
+            "initial_epsilon": 1.0,
             "minimum_epsilon": 0.01,
-            "epsilon_decay": 0.99999,
-            "update_interval": 1000,
+            "epsilon_decay": 0.9999,
+            "update_interval": 250,
             "print_interval": 10,
             "evaluation_interval": 20,
-            "train_interval": 10,
+            "train_interval": 5,
             "log_interval": 500
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -82,7 +82,7 @@ class DQNAgent(mountain_car_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.995)
+        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.999)
         self.epsilon = self.hyperparameters['initial_epsilon']
     
     def act(self, state, greedily: bool = False):
@@ -115,18 +115,11 @@ class DQNAgent(mountain_car_rl.Agent):
             if len(self.replay_buffer) < self.hyperparameters['batch_size']:
                 return
             
-            if self.steps_count % self.hyperparameters['train_interval'] != 0:
-                return
-            else:
-                self.epsilon *= self.hyperparameters['epsilon_decay']
-                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
-
             transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
             states, actions, rewards, next_states, dones = zip(*transitions)
 
             state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
             next_state_batch = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
-
             action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
             reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
             non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
@@ -155,6 +148,10 @@ class DQNAgent(mountain_car_rl.Agent):
                 self.optimizer.step()
 
             self.lr_scheduler.step()
+
+            if self.steps_count % self.hyperparameters['train_interval'] == 0:
+                self.epsilon *= self.hyperparameters['epsilon_decay']
+                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:
                 self.target_model.load_state_dict(self.current_model.state_dict())

@@ -20,15 +20,18 @@ profiler_settings = {
 
 amount_of_bins = 20
 state_bins = [
-    np.linspace(-4.8, 4.8, amount_of_bins),     # Position
-    np.linspace(-4, 4, amount_of_bins),         # Velocity
-    np.linspace(-0.418, 0.418, amount_of_bins), # Angle
-    np.linspace(-4, 4, amount_of_bins)          # Angular velocity
+    np.linspace(-4.8, 4.8, amount_of_bins),
+    np.linspace(-4, 4, amount_of_bins),
+    np.linspace(-.418, .418, amount_of_bins),
+    np.linspace(-4, 4, amount_of_bins)
 ]
 
 def get_discrete_state(state):
-    index = [np.digitize(val, bins) - 1 for val, bins in zip(state, state_bins)]
-    return tuple(index)
+    state_index = [
+        np.digitize(state[i], state_bins[i]) - 1
+        for i in range(len(cart_pole_env.env.observation_space.high))
+    ]
+    return tuple(state_index)
 
 class QLearningAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
@@ -38,10 +41,10 @@ class QLearningAgent(cart_pole_rl.Agent):
         self.hyperparameters = {
             "total_episodes": 50000,
             "alpha": 0.1,
-            "gamma": 0.99,
-            "initial_epsilon": 0.1,
+            "gamma": 0.95,
+            "initial_epsilon": 1.0,
             "minimum_epsilon": 0.005,
-            "epsilon_decay": 0.9999,
+            "epsilon_decay": 0.99995,
             "print_interval": 250,
             'log_interval': 250,
             "evaluation_interval": 10,
@@ -57,36 +60,36 @@ class QLearningAgent(cart_pole_rl.Agent):
     def act(self, state, greedily: bool = False):
         is_exploratory = False
         if greedily:
-            action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
+            action = np.argmax(self.q_table[get_discrete_state(state)])
         else:
             if np.random.random() < self.epsilon:
                 is_exploratory = True
                 action = cart_pole_env.env.action_space.sample()
             else:
-                action = torch.argmax(self.q_table[get_discrete_state(state)]).item()
+                action = np.argmax(self.q_table[get_discrete_state(state)])
         return action, is_exploratory
     
     def train(self, prev_state, action, reward, next_state, done):
         with profile(**profiler_settings) as prof:
             self.steps_count += 1
 
-            prev_state = torch.tensor([get_discrete_state(prev_state)], device=self.device, dtype=torch.long)
-            next_state = torch.tensor([get_discrete_state(next_state)], device=self.device, dtype=torch.long)
-            action = torch.tensor([action], device=self.device, dtype=torch.long)
+            prev_state_idx = get_discrete_state(prev_state)
+            next_state_idx = get_discrete_state(next_state)
 
-            current_q_value = self.q_table[prev_state, action].squeeze()
-            max_next_q_value = torch.max(self.q_table[next_state]).detach()
+            current_q_value = self.q_table[prev_state_idx, action]
+            max_next_q_value = np.max(self.q_table[next_state_idx])
 
-            new_q_value = current_q_value + self.hyperparameters['alpha'] * (reward + self.hyperparameters['gamma'] * max_next_q_value - current_q_value)
-            
-            td_error = new_q_value - current_q_value
-            self.q_table[prev_state, action] = new_q_value
+            new_q_value = (1 - self.hyperparameters['alpha']) * current_q_value + self.hyperparameters['alpha'] * (
+                reward + self.hyperparameters['gamma'] * max_next_q_value)
+
+            self.q_table[prev_state_idx, action] = new_q_value
 
             if self.steps_count % self.hyperparameters['train_interval'] == 0:
                 self.epsilon *= self.hyperparameters['epsilon_decay']
                 self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
             if self.steps_count % self.hyperparameters['log_interval'] == 0:
+                td_error = new_q_value - current_q_value
                 td_error_mean = td_error.mean().item()
                 self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
                 td_error_sum = td_error.sum().item()
@@ -95,8 +98,8 @@ class QLearningAgent(cart_pole_rl.Agent):
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)
-        actions = (cart_pole_env.env.action_space.n,)
-        self.q_table = torch.zeros(states + actions, dtype=torch.float32, device=self.device)
+        actions = [cart_pole_env.env.action_space.n]
+        self.q_table = np.random.uniform(low=-2, high=0, size=(states + actions))
 
     def deserialize_agent(self):
         model_path = self.model_dir / f'{self.hyperparameter_path}.pt'
