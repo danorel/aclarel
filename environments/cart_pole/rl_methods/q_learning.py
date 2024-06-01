@@ -43,6 +43,7 @@ class QLearningAgent(cart_pole_rl.Agent):
             "minimum_epsilon": 0.005,
             "epsilon_decay": 0.9999,
             "print_interval": 250,
+            'log_interval': 250,
             "evaluation_interval": 10,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -82,13 +83,12 @@ class QLearningAgent(cart_pole_rl.Agent):
             td_error = new_q_value - current_q_value
             self.q_table[prev_state, action] = new_q_value
 
-            td_error_mean = td_error.mean().item()
-            self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
-
-            td_error_sum = td_error.sum().item()
-            self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.steps_count)
-
-            prof.step()
+            if self.steps_count % self.hyperparameters['log_interval'] == 0:
+                td_error_mean = td_error.mean().item()
+                self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
+                td_error_sum = td_error.sum().item()
+                self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.steps_count)
+                prof.step()
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)

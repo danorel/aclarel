@@ -1,4 +1,5 @@
 autopep8==2.0.1
+gym==0.26.2
 gymnasium==0.29.1
 gymnasium[atari]==0.29.1
 gymnasium[accept-rom-license]==0.29.1
@@ -8,8 +9,10 @@ pre-commit==3.0.4
 protobuf==3.20.0
 pyglet==2.0.15
 pygame==2.5.2
+python_dotenv==1.0.1
 tensorboard==2.16.2
 tqdm==4.66.4
 torch==2.2.2
 torchvision==0.17.2
+torchaudio==2.2.2
 ipykernel==6.21.1

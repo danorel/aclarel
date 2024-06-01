@@ -49,25 +49,26 @@ class Agent(abc.ABC):
         pass
 
     def track_measurements(self, evaluation, aar, ses, learning_stability, mean_reward, std_reward, total_reward, success_rate):
-        measurement = pd.DataFrame([{
-            **self.metadata,
-            'evaluation': evaluation,
-            'aar': aar,
-            'ses': ses,
-            'learning_stability': learning_stability,
-            'mean_reward': mean_reward,
-            'std_reward': std_reward,
-            'total_reward': total_reward,
-            'success_rate': success_rate
-        }])
-        if not measurement.isna().any().any():
-            self.measurements = pd.concat([self.measurements, measurement], ignore_index=True)
-            self.writer.add_scalar('Performance/Mean_Reward', mean_reward, self.steps_count)
-            self.writer.add_scalar('Performance/Std_Reward', std_reward, self.steps_count)
-            self.writer.add_scalar('Performance/Total_Reward', total_reward, self.steps_count)
-            self.writer.add_scalar('Performance/Success_Rate', success_rate, self.steps_count)
-            self.writer.add_scalar('Performance/AAR', aar, self.steps_count)
-            self.writer.add_scalar('Performance/SES', ses, self.steps_count)
+        if self.steps_count % self.hyperparameters["log_interval"] == 0:
+            measurement = pd.DataFrame([{
+                **self.metadata,
+                'evaluation': evaluation,
+                'aar': aar,
+                'ses': ses,
+                'learning_stability': learning_stability,
+                'mean_reward': mean_reward,
+                'std_reward': std_reward,
+                'total_reward': total_reward,
+                'success_rate': success_rate
+            }])
+            if not measurement.isna().any().any():
+                self.measurements = pd.concat([self.measurements, measurement], ignore_index=True)
+                self.writer.add_scalar('Performance/Mean_Reward', mean_reward, self.steps_count)
+                self.writer.add_scalar('Performance/Std_Reward', std_reward, self.steps_count)
+                self.writer.add_scalar('Performance/Total_Reward', total_reward, self.steps_count)
+                self.writer.add_scalar('Performance/Success_Rate', success_rate, self.steps_count)
+                self.writer.add_scalar('Performance/AAR', aar, self.steps_count)
+                self.writer.add_scalar('Performance/SES', ses, self.steps_count)
 
     def plot_measurements(self):
         for metric in self.measurements.columns.difference([*self.metadata.keys(), 'evaluation']):

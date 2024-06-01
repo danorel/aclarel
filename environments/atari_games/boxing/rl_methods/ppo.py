@@ -91,6 +91,7 @@ class PPOAgent(boxing_rl.Agent):
             "batch_size": 2048,
             "print_interval": 1,
             'train_interval': 50,
+            'log_interval': 100,
             "evaluation_interval": 1,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -188,7 +189,6 @@ class PPOAgent(boxing_rl.Agent):
             next_state_values = next_state_values.detach()
 
             total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
-            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
 
             self.optimizer.zero_grad()
             if self.autocast:
@@ -202,7 +202,10 @@ class PPOAgent(boxing_rl.Agent):
                 self.optimizer.step()
 
             self.lr_scheduler.step()
-            prof.step()
+
+            if self.steps_count % self.hyperparameters['log_interval'] == 0:
+                self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
+                prof.step()
 
     def refresh_agent(self):
         add_gradient_logging(self.model)

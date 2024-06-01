@@ -70,6 +70,7 @@ class DQNAgent(cart_pole_rl.Agent):
             "print_interval": 10,
             "evaluation_interval": 10,
             'train_interval': 10,
+            'log_interval': 250,
             "update_interval": 1000
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
@@ -157,12 +158,13 @@ class DQNAgent(cart_pole_rl.Agent):
                 self.optimizer.step()
             
             self.lr_scheduler.step()
-            prof.step()
 
             if self.steps_count % self.hyperparameters['update_interval'] == 0:
                 self.target_model.load_state_dict(self.current_model.state_dict())
 
-            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
+            if self.steps_count % self.hyperparameters['log_interval'] == 0:
+                self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
+                prof.step()
 
     def refresh_agent(self):
         self.target_model.load_state_dict(self.current_model.state_dict())
