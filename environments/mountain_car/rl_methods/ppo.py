@@ -62,7 +62,7 @@ class PPOAgent(mountain_car_rl.Agent):
             "print_interval": 5,
             "evaluation_interval": 10,
             "train_interval": 5,
-            'log_interval': 10,
+            'log_interval': 1,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.model = PPONetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)

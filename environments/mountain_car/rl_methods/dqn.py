@@ -60,7 +60,7 @@ class DQNAgent(mountain_car_rl.Agent):
             "print_interval": 10,
             "evaluation_interval": 20,
             "train_interval": 5,
-            "log_interval": 10
+            "log_interval": 1
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)

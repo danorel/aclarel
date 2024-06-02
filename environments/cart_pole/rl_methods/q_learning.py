@@ -32,9 +32,9 @@ class QLearningAgent(cart_pole_rl.Agent):
             "minimum_epsilon": 0.005,
             "epsilon_decay": 0.99995,
             "print_interval": 250,
-            'log_interval': 250,
             "evaluation_interval": 10,
             "train_interval": 10,
+            'log_interval': 1,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         if use_pretrained:

@@ -60,8 +60,8 @@ class DQNAgent(cart_pole_rl.Agent):
             "print_interval": 10,
             "evaluation_interval": 50,
             'train_interval': 100,
-            'log_interval': 250,
-            "update_interval": 500
+            "update_interval": 500,
+            'log_interval': 1,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(cart_pole_env.env.observation_space.shape[0], cart_pole_env.env.action_space.n).to(self.device)
