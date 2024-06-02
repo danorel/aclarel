@@ -98,7 +98,7 @@ class QLearningAgent(cart_pole_rl.Agent):
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)
-        actions = [cart_pole_env.env.action_space.n]
+        actions = (cart_pole_env.env.action_space.n,)
         self.q_table = np.random.uniform(low=-2, high=0, size=(states + actions))
 
     def deserialize_agent(self):

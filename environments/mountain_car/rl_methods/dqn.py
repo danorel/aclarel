@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
-from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 import pathlib
 import random
@@ -71,7 +70,7 @@ class DQNAgent(mountain_car_rl.Agent):
             "print_interval": 10,
             "evaluation_interval": 20,
             "train_interval": 5,
-            "log_interval": 500
+            "log_interval": 10
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         self.current_model = DQNNetwork(mountain_car_env.env.observation_space.shape[0], mountain_car_env.env.action_space.n).to(self.device)
@@ -82,7 +81,7 @@ class DQNAgent(mountain_car_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.current_model.parameters(), lr=self.hyperparameters['alpha'])
-        self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.999)
+        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=1e-4)
         self.epsilon = self.hyperparameters['initial_epsilon']
     
     def act(self, state, greedily: bool = False):

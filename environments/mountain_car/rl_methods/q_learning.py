@@ -43,7 +43,7 @@ class QLearningAgent(mountain_car_rl.Agent):
             "print_interval": 10,
             "evaluation_interval": 30,
             "train_interval": 10,
-            "log_interval": 500,
+            "log_interval": 10,
         }
         self.hyperparameter_path = f"alpha-{self.hyperparameters['alpha']}_gamma-{self.hyperparameters['gamma']}_episodes-{self.hyperparameters['total_episodes']}"
         if use_pretrained:

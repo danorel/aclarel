@@ -6,6 +6,6 @@ def mixture(min_frame_skip=1, max_frame_skip=10, switch=0.5, exponent=2):
             progress = evaluation / (total_evaluations * switch)
         else:
             progress = ((evaluation - total_evaluations * switch) / (total_evaluations * (1 - switch))) ** exponent
-        new_frame_skip = min_frame_skip + (max_frame_skip - min_frame_skip) * progress
+        new_frame_skip = min(max(int(min_frame_skip + (max_frame_skip - min_frame_skip) * progress), min_frame_skip), max_frame_skip)
         boxing.update_env_parameters(env, frame_skip=new_frame_skip)
     return curriculum

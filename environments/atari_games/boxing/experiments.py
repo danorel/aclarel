@@ -21,8 +21,8 @@ def get_curriculum(agent: Agent, min_frame_skip=1, max_frame_skip=10):
     total_evaluations = agent.hyperparameters['total_episodes'] // agent.hyperparameters['evaluation_interval']
     curricula = {
         'baseline': None,
-        'teacher-learning': teacher_learning.teacher_student_curriculum(min_frame_skip, max_frame_skip, min_reward=0, max_reward=100),
-        'transfer-learning': transfer_learning.transfer_learning_curriculum(min_frame_skip, max_frame_skip, source_evaluations=total_evaluations // 2, target_evaluations=total_evaluations),
+        'teacher-learning': teacher_learning.teacher_student_curriculum(min_frame_skip, max_frame_skip, min_reward=-100, max_reward=100),
+        'transfer-learning': transfer_learning.transfer_learning_curriculum(min_frame_skip, max_frame_skip, source_frame_skip=1, target_frame_skip=4, source_evaluations=total_evaluations // 2, target_evaluations=total_evaluations),
         'root-p': pre_defined.root_p(min_frame_skip, max_frame_skip, exponent=2),
         'one-pass': pre_defined.one_pass(min_frame_skip, max_frame_skip, total_evaluations),
         'hard': self_paced.hard(min_frame_skip, max_frame_skip, milestones=[0.25, 0.5, 0.75]),

@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import pathlib
 import random
 from torch.cuda.amp import autocast, GradScaler
-from torch.optim.lr_scheduler import ExponentialLR
 from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
 import environments.mountain_car.environment as mountain_car_env
@@ -72,7 +71,7 @@ class PPOAgent(mountain_car_rl.Agent):
             "clip_epsilon": 0.2,
             "gae_lambda": 0.99,
             "print_interval": 5,
-            "evaluation_interval": 5,
+            "evaluation_interval": 10,
             "train_interval": 5,
             'log_interval': 10,
         }
@@ -84,7 +83,7 @@ class PPOAgent(mountain_car_rl.Agent):
             self.refresh_agent()
         self.replay_buffer = deque(maxlen=self.hyperparameters['replay_buffer_size'])
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.hyperparameters['alpha'])
-        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.995)
+        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=1e-4)
 
     def preprocess_single(self, state):
         return torch.tensor(state, dtype=torch.float32).to(self.device)
