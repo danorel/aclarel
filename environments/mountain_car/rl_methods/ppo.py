@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import pathlib
 import random
 from torch.cuda.amp import autocast, GradScaler
-from torch.profiler import profile, ProfilerActivity
 from collections import deque, namedtuple
 import environments.mountain_car.environment as mountain_car_env
 import environments.mountain_car.rl_methods as mountain_car_rl
@@ -15,16 +14,6 @@ agent_name = pathlib.Path(__file__).resolve().stem
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done', 'log_prob'))
-
-profiler_settings = {
-    "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3),
-    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./runs'),
-    "record_shapes": True,
-    "profile_memory": True,
-    "with_stack": True,
-    "with_flops": True,
-    "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
-}
 
 def add_gradient_logging(model, threshold=1e-6):
     for name, parameter in model.named_parameters():
@@ -136,52 +125,50 @@ class PPOAgent(mountain_car_rl.Agent):
         return total_loss
 
     def train(self, prev_state, action, reward, next_state, done, log_prob):
-        with profile(**profiler_settings) as prof:
-            self.steps_count += 1
+        self.steps_count += 1
 
-            self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done, log_prob))
-            
-            if len(self.replay_buffer) < self.hyperparameters['batch_size']:
-                return
-            
-            if self.steps_count % self.hyperparameters['train_interval'] != 0:
-                return
+        self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done, log_prob))
+        
+        if len(self.replay_buffer) < self.hyperparameters['batch_size']:
+            return
+        
+        if self.steps_count % self.hyperparameters['train_interval'] != 0:
+            return
 
-            transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
-            states, actions, rewards, next_states, dones, log_probs = zip(*transitions)
+        transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
+        states, actions, rewards, next_states, dones, log_probs = zip(*transitions)
 
-            state_batch = self.preprocess_batch(states)
-            next_state_batch = self.preprocess_batch(next_states)
-            action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
-            reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-            done_batch = torch.tensor(dones, dtype=torch.bool, device=self.device)
-            log_prob_batch = torch.tensor(log_probs, dtype=torch.float32, device=self.device)
+        state_batch = self.preprocess_batch(states)
+        next_state_batch = self.preprocess_batch(next_states)
+        action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
+        reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        done_batch = torch.tensor(dones, dtype=torch.bool, device=self.device)
+        log_prob_batch = torch.tensor(log_probs, dtype=torch.float32, device=self.device)
 
-            action_probs, state_values = self.model(state_batch)
-            _, next_state_values = self.model(next_state_batch)
-            
-            next_state_values = next_state_values.detach()
+        action_probs, state_values = self.model(state_batch)
+        _, next_state_values = self.model(next_state_batch)
+        
+        next_state_values = next_state_values.detach()
 
-            total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
+        total_loss = self.compute_loss(action_probs, state_values, action_batch, reward_batch, next_state_values, done_batch, log_prob_batch)
 
-            self.optimizer.zero_grad()
-            if self.autocast:
-                with autocast():
-                    self.scaler.scale(total_loss).backward()
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-            else:
-                total_loss.backward()
+        self.optimizer.zero_grad()
+        if self.autocast:
+            with autocast():
+                self.scaler.scale(total_loss).backward()
+                self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                self.optimizer.step()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+        else:
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
 
-            self.lr_scheduler.step() 
+        self.lr_scheduler.step() 
 
-            if self.steps_count % self.hyperparameters['log_interval'] == 0:
-                self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
-                prof.step()
+        if self.steps_count % self.hyperparameters['log_interval'] == 0:
+            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
 
     def refresh_agent(self):
         add_gradient_logging(self.model)

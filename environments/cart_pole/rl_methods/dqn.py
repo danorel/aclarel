@@ -4,7 +4,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
 from torch.optim.lr_scheduler import ExponentialLR
-from torch.profiler import profile, ProfilerActivity
 import pathlib
 import random
 import numpy as np
@@ -17,15 +16,6 @@ agent_name = pathlib.Path(__file__).resolve().stem
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
-
-profiler_settings = {
-    "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3),
-    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./runs'),
-    "record_shapes": True,
-    "profile_memory": True,
-    "with_stack": True,
-    "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
-}
 
 def add_gradient_logging(model, threshold=1e-6):
     for name, parameter in model.named_parameters():
@@ -108,54 +98,52 @@ class DQNAgent(cart_pole_rl.Agent):
         return action, is_exploratory
 
     def train(self, prev_state, action, reward, next_state, done):
-        with profile(**profiler_settings) as prof:
-            self.steps_count += 1
+        self.steps_count += 1
 
-            self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
-            if len(self.replay_buffer) < self.hyperparameters['batch_size']:
-                return
-            
-            transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
-            states, actions, rewards, next_states, dones = zip(*transitions)
+        self.replay_buffer.append(Transition(prev_state, action, reward, next_state, done))
+        if len(self.replay_buffer) < self.hyperparameters['batch_size']:
+            return
+        
+        transitions = random.sample(self.replay_buffer, self.hyperparameters['batch_size'])
+        states, actions, rewards, next_states, dones = zip(*transitions)
 
-            state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
-            next_state_batch = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
-            action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
-            reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-            non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
-            state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
+        state_batch = torch.tensor(states, dtype=torch.float32, device=self.device)
+        next_state_batch = torch.tensor([s for s, done in zip(next_states, dones) if not done], dtype=torch.float32, device=self.device)
+        action_batch = torch.tensor(actions, dtype=torch.long, device=self.device)
+        reward_batch = torch.tensor(rewards, dtype=torch.float32, device=self.device)
+        non_final_mask = torch.tensor([not done for done in dones], dtype=torch.bool, device=self.device)
+        state_action_values = self.current_model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(-1)
 
-            next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
-            if non_final_mask.any():
-                with torch.no_grad():
-                    next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
+        next_state_values = torch.zeros(self.hyperparameters['batch_size'], device=self.device)
+        if non_final_mask.any():
+            with torch.no_grad():
+                next_state_values[non_final_mask] = self.target_model(next_state_batch).max(1)[0].detach()
 
-            expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
+        expected_state_action_values = (next_state_values * self.hyperparameters['gamma']) + reward_batch
 
-            total_loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+        total_loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
 
-            self.optimizer.zero_grad()
-            if self.autocast:
-                with autocast():
-                    self.scaler.scale(total_loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-            else:
-                total_loss.backward()
-                self.optimizer.step()
-            
-            self.lr_scheduler.step()
+        self.optimizer.zero_grad()
+        if self.autocast:
+            with autocast():
+                self.scaler.scale(total_loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+        else:
+            total_loss.backward()
+            self.optimizer.step()
+        
+        self.lr_scheduler.step()
 
-            if self.steps_count % self.hyperparameters['train_interval'] != 0:
-                self.epsilon *= self.hyperparameters['epsilon_decay']
-                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
+        if self.steps_count % self.hyperparameters['train_interval'] != 0:
+            self.epsilon *= self.hyperparameters['epsilon_decay']
+            self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
-            if self.steps_count % self.hyperparameters['update_interval'] == 0:
-                self.target_model.load_state_dict(self.current_model.state_dict())
+        if self.steps_count % self.hyperparameters['update_interval'] == 0:
+            self.target_model.load_state_dict(self.current_model.state_dict())
 
-            if self.steps_count % self.hyperparameters['log_interval'] == 0:
-                self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
-                prof.step()
+        if self.steps_count % self.hyperparameters['log_interval'] == 0:
+            self.writer.add_scalar('Loss/loss', total_loss.item(), self.steps_count)
 
     def refresh_agent(self):
         self.target_model.load_state_dict(self.current_model.state_dict())
