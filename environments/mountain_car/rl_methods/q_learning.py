@@ -1,22 +1,10 @@
 import numpy as np
 import torch
-from torch.profiler import profile, ProfilerActivity
 import pathlib
 import environments.mountain_car.environment as mountain_car_env
 import environments.mountain_car.rl_methods as mountain_car_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-profiler_settings = {
-    "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3),
-    "on_trace_ready": torch.profiler.tensorboard_trace_handler('./runs'),
-    "record_shapes": True,
-    "profile_memory": True,
-    "with_stack": True,
-    "activities": [ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if device.type == 'cuda' else []),
-}
 
 amount_of_bins = 30
 state_bins = [
@@ -31,8 +19,6 @@ def get_discrete_state(state):
 class QLearningAgent(mountain_car_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
-        self.device = device
-        print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 3000,
             "alpha": 0.1,
@@ -65,31 +51,29 @@ class QLearningAgent(mountain_car_rl.Agent):
         return action, dict(log_prob=None, is_exploratory=is_exploratory)
     
     def train(self, prev_state, action, reward, next_state, done, log_prob):
-        with profile(**profiler_settings) as prof:
-            self.steps_count += 1
+        self.steps_count += 1
 
-            prev_state_idx = get_discrete_state(prev_state)
-            next_state_idx = get_discrete_state(next_state)
+        prev_state_idx = get_discrete_state(prev_state)
+        next_state_idx = get_discrete_state(next_state)
 
-            current_q_value = self.q_table[prev_state_idx, action]
-            max_next_q_value = np.max(self.q_table[next_state_idx])
+        current_q_value = self.q_table[prev_state_idx, action]
+        max_next_q_value = np.max(self.q_table[next_state_idx])
 
-            new_q_value = (1 - self.hyperparameters['alpha']) * current_q_value + self.hyperparameters['alpha'] * (
-                reward + self.hyperparameters['gamma'] * max_next_q_value)
+        new_q_value = (1 - self.hyperparameters['alpha']) * current_q_value + self.hyperparameters['alpha'] * (
+            reward + self.hyperparameters['gamma'] * max_next_q_value)
 
-            self.q_table[prev_state_idx, action] = new_q_value
+        self.q_table[prev_state_idx, action] = new_q_value
 
-            if self.steps_count % self.hyperparameters['train_interval'] == 0:
-                self.epsilon *= self.hyperparameters['epsilon_decay']
-                self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
+        if self.steps_count % self.hyperparameters['train_interval'] == 0:
+            self.epsilon *= self.hyperparameters['epsilon_decay']
+            self.epsilon = max(self.hyperparameters['minimum_epsilon'], self.epsilon)
 
-            if self.steps_count % self.hyperparameters['log_interval'] == 0:
-                td_error = new_q_value - current_q_value
-                td_error_mean = td_error.mean().item()
-                self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
-                td_error_sum = td_error.sum().item()
-                self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.steps_count)
-                prof.step()
+        if self.steps_count % self.hyperparameters['log_interval'] == 0:
+            td_error = new_q_value - current_q_value
+            td_error_mean = td_error.mean().item()
+            self.writer.add_scalar('Loss/TD_Error_Mean', td_error_mean, self.steps_count)
+            td_error_sum = td_error.sum().item()
+            self.writer.add_scalar('Loss/TD_Error_Sum', td_error_sum, self.steps_count)
 
     def refresh_agent(self):
         states = tuple(len(bins) + 1 for bins in state_bins)

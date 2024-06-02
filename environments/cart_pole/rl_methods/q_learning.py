@@ -6,8 +6,6 @@ import environments.cart_pole.rl_methods as cart_pole_rl
 
 agent_name = pathlib.Path(__file__).resolve().stem
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 amount_of_bins = 20
 state_bins = [
     np.linspace(-4.8, 4.8, amount_of_bins),
@@ -26,8 +24,6 @@ def get_discrete_state(state):
 class QLearningAgent(cart_pole_rl.Agent):
     def __init__(self, curriculum_name, use_pretrained: bool = False):
         super().__init__(agent_name, curriculum_name)
-        self.device = device
-        print(f"Device: {self.device}")
         self.hyperparameters = {
             "total_episodes": 50000,
             "alpha": 0.1,
