@@ -48,7 +48,7 @@ class DQNAgent(mountain_car_rl.Agent):
         self.scaler = GradScaler()
         print(f"Autocast gradients: {self.autocast}")
         self.hyperparameters = {
-            "total_episodes": 2000,
+            "total_episodes": 500,
             "alpha": 0.0001,
             "gamma": 0.99,
             "replay_buffer_size": 10000,
@@ -58,7 +58,7 @@ class DQNAgent(mountain_car_rl.Agent):
             "epsilon_decay": 0.9999,
             "update_interval": 250,
             "print_interval": 10,
-            "evaluation_interval": 20,
+            "evaluation_interval": 5,
             "train_interval": 5,
             "log_interval": 1
         }
