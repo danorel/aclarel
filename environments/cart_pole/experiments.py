@@ -16,7 +16,7 @@ def get_agent(agent_name, curriculum_name, pretrained: bool = False):
     }
     return agents.get(agent_name, DQNAgent)(curriculum_name, pretrained)
 
-def get_curriculum(agent: Agent, min_length=0.25, max_length=0.5):
+def get_curriculum(agent: Agent, min_length=0.5, max_length=1.0):
     """Factory function to fetch the appropriate curriculum."""
     total_evaluations = agent.hyperparameters['total_episodes'] // agent.hyperparameters['evaluation_interval']
     curricula = {

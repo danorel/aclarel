@@ -54,7 +54,7 @@ class DQNAgent(cart_pole_rl.Agent):
             "gamma": 0.99,
             "replay_buffer_size": 50000,
             "batch_size": 128,
-            "initial_epsilon": 1.0,
+            "initial_epsilon": 0.01,
             "minimum_epsilon": 0.01,
             "epsilon_decay": 0.9999,
             "print_interval": 10,

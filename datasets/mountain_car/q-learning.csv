@@ -1,4 +1,4 @@
-agent_name,evaluation,curriculum_name,aar,ses,learning_stability,mean_reward,std_reward,total_reward,success_rate
+agent_name,curriculum_name,evaluation,aar,ses,learning_stability,mean_reward,std_reward,total_reward,success_rate
 q_learning,baseline,0,-18.547513464515585,1.0,380.55740027529004,-1000.0,0.0,-30000.0,0.0
 q_learning,baseline,1,-19.920475736297412,1.0,408.12587504285057,-1000.0,0.0,-30000.0,0.0
 q_learning,baseline,2,-20.15775742909252,1.0,385.0079273882685,-1000.0,0.0,-30000.0,0.0
